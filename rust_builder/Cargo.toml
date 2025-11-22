@@ -1,0 +1,19 @@
+[package]
+name = "merkle-address-index"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "merkle-address-index"
+path = "src/main.rs"
+
+[[bin]]
+name = "build-merkle-tree"
+path = "src/build_merkle.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+tiny-keccak = { version = "2.0", features = ["keccak"] }
+hex = "0.4"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }

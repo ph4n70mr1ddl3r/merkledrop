@@ -1,1 +1,22 @@
+# Data/generated artifacts
 accounts.txt
+*.db
+*.sqlite
+*.pyc
+
+# Foundry
+out/
+cache/
+broadcast/
+lib/
+
+# Python
+.venv/
+__pycache__/
+
+# Rust
+target/
+
+# Misc
+.env
+.DS_Store
