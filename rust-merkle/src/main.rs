@@ -65,44 +65,26 @@ fn main() -> Result<()> {
 
     let layer0_name = format!("{}{:02}.bin", args.layer_prefix, 0);
     let layer0_path = args.out.join(&layer0_name);
-    let mut leaf_writer = BufWriter::new(File::create(&layer0_path)?);
-    let mut address_writer: Option<BufWriter<File>> = if args.address_lines {
-        let map_path = args.out.join(&args.address_map);
-        Some(BufWriter::new(File::create(map_path)?))
-    } else {
-        None
-    };
 
     let mut leaf_count = 0usize;
     let started_at = std::time::Instant::now();
 
-    if let Some(manifest) = &args.manifest {
-        process_manifest(
-            manifest,
-            &mut leaf_writer,
-            &mut address_writer,
-            &mut leaf_count,
-            &args,
-        )?;
-    }
-
-    for file in &args.files {
-        process_file(
-            file,
-            &mut leaf_writer,
-            &mut address_writer,
-            &mut leaf_count,
-            &args,
-        )?;
-    }
-
-    leaf_writer.flush()?;
-    if let Some(writer) = address_writer.as_mut() {
-        writer.flush()?;
-    }
-
-    if leaf_count == 0 {
-        return Err("No leaves written; provide files or a manifest".into());
+    if args.address_lines {
+        let address_map_path = args.out.join(&args.address_map);
+        let addrs_written = write_addresses(&args, &address_map_path)?;
+        if addrs_written == 0 {
+            return Err("No addresses written; provide files or a manifest".into());
+        }
+        leaf_count = addrs_written;
+        println!(
+            "Wrote {} addresses to {} in {:.2}s",
+            leaf_count,
+            address_map_path.display(),
+            started_at.elapsed().as_secs_f64()
+        );
+        build_layer0_from_addresses(&address_map_path, &layer0_path, leaf_count, &args)?;
+    } else {
+        leaf_count = build_layer0_from_files(&args, &layer0_path)?;
     }
 
     println!(
@@ -161,51 +143,140 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn process_manifest(
-    manifest: &Path,
-    leaf_writer: &mut BufWriter<File>,
-    address_writer: &mut Option<BufWriter<File>>,
-    leaf_count: &mut usize,
-    args: &Args,
-) -> Result<()> {
-    let file = File::open(manifest)?;
+fn write_addresses(args: &Args, map_path: &Path) -> Result<usize> {
+    let mut writer = BufWriter::new(File::create(map_path)?);
+    let mut count = 0usize;
+
+    if let Some(manifest) = &args.manifest {
+        let file = File::open(manifest)?;
+        let reader = BufReader::new(file);
+        for line in reader.lines() {
+            let line = line?;
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let path = resolve_path(trimmed, &args.base);
+            count = write_addresses_from_file(&path, &mut writer, args.log_interval, count)?;
+        }
+    }
+
+    for file in &args.files {
+        count = write_addresses_from_file(file, &mut writer, args.log_interval, count)?;
+    }
+
+    writer.flush()?;
+    Ok(count)
+}
+
+fn write_addresses_from_file(
+    path: &Path,
+    writer: &mut BufWriter<File>,
+    log_interval: usize,
+    mut count: usize,
+) -> Result<usize> {
+    let file = File::open(path)?;
     let reader = BufReader::new(file);
     for line in reader.lines() {
         let line = line?;
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
+        let addr_str = line.trim();
+        if addr_str.is_empty() {
             continue;
         }
-        let path = resolve_path(trimmed, &args.base);
-        process_file(&path, leaf_writer, address_writer, leaf_count, args)?;
+        let addr = parse_address(addr_str)?;
+        writer.write_all(&addr)?;
+        count += 1;
+        if log_interval > 0 && count % log_interval == 0 {
+            println!("Addresses written: {}", count);
+        }
+    }
+    Ok(count)
+}
+
+fn build_layer0_from_addresses(
+    address_map: &Path,
+    layer0_path: &Path,
+    leaf_count: usize,
+    args: &Args,
+) -> Result<()> {
+    let mut reader = BufReader::new(File::open(address_map)?);
+    let mut writer = BufWriter::new(File::create(layer0_path)?);
+    let mut buf = vec![0u8; 20 * 4096];
+    let mut index = 0usize;
+
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        if n % 20 != 0 {
+            return Err("address map read not aligned to 20 bytes".into());
+        }
+        let addrs = n / 20;
+        for i in 0..addrs {
+            let start = i * 20;
+            let end = start + 20;
+            let mut addr = [0u8; 20];
+            addr.copy_from_slice(&buf[start..end]);
+            let leaf = hash_index_address(index, &addr);
+            writer.write_all(&leaf)?;
+            index += 1;
+            if args.log_interval > 0 && index % args.log_interval == 0 {
+                println!("Hashed {} leaves into layer0", index);
+            }
+        }
+    }
+
+    writer.flush()?;
+    if index != leaf_count {
+        return Err(format!(
+            "leaf count mismatch: expected {}, wrote {}",
+            leaf_count, index
+        )
+        .into());
     }
     Ok(())
 }
 
-fn process_file(
-    path: &Path,
-    leaf_writer: &mut BufWriter<File>,
-    address_writer: &mut Option<BufWriter<File>>,
-    leaf_count: &mut usize,
-    args: &Args,
-) -> Result<()> {
-    if args.address_lines {
-        process_address_file(path, leaf_writer, address_writer, leaf_count, args)
-    } else {
-        let leaf = hash_file(path)?;
-        leaf_writer.write_all(&leaf)?;
-        *leaf_count += 1;
+fn build_layer0_from_files(args: &Args, layer0_path: &Path) -> Result<usize> {
+    let mut writer = BufWriter::new(File::create(layer0_path)?);
+    let mut count = 0usize;
 
-        if args.log_interval > 0 && *leaf_count % args.log_interval == 0 {
-            let rate = *leaf_count as f64 / args.log_interval as f64;
-            println!(
-                "Processed {} leaves (~{:.0} per interval)",
-                leaf_count, rate
-            );
+    if let Some(manifest) = &args.manifest {
+        let file = File::open(manifest)?;
+        let reader = BufReader::new(file);
+        for line in reader.lines() {
+            let line = line?;
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let path = resolve_path(trimmed, &args.base);
+            count = hash_file_into(&path, &mut writer, args.log_interval, count)?;
         }
-
-        Ok(())
     }
+
+    for file in &args.files {
+        count = hash_file_into(file, &mut writer, args.log_interval, count)?;
+    }
+
+    writer.flush()?;
+    Ok(count)
+}
+
+fn hash_file_into(
+    path: &Path,
+    writer: &mut BufWriter<File>,
+    log_interval: usize,
+    mut count: usize,
+) -> Result<usize> {
+    let leaf = hash_file(path)?;
+    writer.write_all(&leaf)?;
+    count += 1;
+    if log_interval > 0 && count % log_interval == 0 {
+        println!("Processed {} leaves", count);
+    }
+    Ok(count)
 }
 
 fn resolve_path(entry: &str, base: &Path) -> PathBuf {
@@ -232,40 +303,6 @@ fn hash_file(path: &Path) -> Result<[u8; 32]> {
     let mut out = [0u8; 32];
     out.copy_from_slice(&digest);
     Ok(out)
-}
-
-fn process_address_file(
-    path: &Path,
-    leaf_writer: &mut BufWriter<File>,
-    address_writer: &mut Option<BufWriter<File>>,
-    leaf_count: &mut usize,
-    args: &Args,
-) -> Result<()> {
-    let file = File::open(path)?;
-    let reader = BufReader::new(file);
-    for line in reader.lines() {
-        let line = line?;
-        let addr_str = line.trim();
-        if addr_str.is_empty() {
-            continue;
-        }
-        let addr = parse_address(addr_str)?;
-        let leaf = hash_index_address(*leaf_count, &addr);
-        leaf_writer.write_all(&leaf)?;
-        if let Some(writer) = address_writer.as_mut() {
-            writer.write_all(&addr)?;
-        }
-        *leaf_count += 1;
-
-        if args.log_interval > 0 && *leaf_count % args.log_interval == 0 {
-            let rate = *leaf_count as f64 / args.log_interval as f64;
-            println!(
-                "Processed {} leaves (~{:.0} per interval)",
-                leaf_count, rate
-            );
-        }
-    }
-    Ok(())
 }
 
 fn parse_address(s: &str) -> Result<[u8; 20]> {
