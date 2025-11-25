@@ -5,7 +5,6 @@ This repository ships a 64,846,015-address Ethereum whitelist (addresses that pa
 ## Contents
 - `shards/`: 256 shard files listed in `shards/manifest.txt`, sorted by prefix.
 - `rust-merkle/`: Rust CLI tools to build the Merkle tree and generate proofs.
-- `proof-worker/`: Cloudflare Worker skeleton that serves proofs from precomputed layers (no JS build pipeline required).
 - `MerkleAirdropToken.sol`: ERC20 that mints on claim using a Merkle root; owner can end the airdrop anytime.
 
 ## Build the Merkle tree (Rust)
@@ -38,13 +37,16 @@ cargo run --release --manifest-path rust-merkle/Cargo.toml --bin proof -- \
   --meta out-rs/merkle-meta.json \
   --layers-dir out-rs
 ```
-If `addressMap` is present in `merkle-meta.json` and layers live next to it, you can omit `--address-map`/`--layers-dir`.
+If `addressMap` is present in `merkle-meta.json` and layers live next to it, you can omit `--address-map`/`--layers-dir`. The proof helper binary-searches the globally sorted `addresses.bin` to resolve the leaf index.
+
+## Verify sorting (optional)
+To fully scan and confirm `addresses.bin` is globally sorted:
+```bash
+cargo run --release --manifest-path rust-merkle/Cargo.toml --bin check-sorted --
+```
 
 ## Airdrop contract
 - Fixed claim: 100 MAT (18 decimals), minted on successful proof.
 - Leaf encoding: `keccak256(abi.encodePacked(index, account))`.
 - Owner can end the airdrop at any time; bitmap prevents double claims.
 - File: `MerkleAirdropToken.sol`.
-
-## Proof API option
-`proof-worker/` contains a Cloudflare Worker skeleton that reads `layer*.bin` and `merkle-meta.json` from R2 and serves proofs at `/proof?address=…`. It also supports `addresses.bin` for index lookup. Adapt `wrangler.toml` with your bucket bindings before deploy.

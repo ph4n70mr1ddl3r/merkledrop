@@ -20,13 +20,9 @@ struct Args {
     #[arg(long)]
     layers_dir: Option<PathBuf>,
 
-    /// Directory containing lookup shards (prefix-based JSON).
-    #[arg(long, default_value = "out/lookup")]
-    lookup_dir: PathBuf,
-
-    /// Optional address map (20 bytes per address in leaf order). Defaults to meta.addressMap if present.
-    #[arg(long)]
-    address_map: Option<PathBuf>,
+    /// Address map (20 bytes per address in leaf order). Defaults to meta.addressMap if present.
+    #[arg(long, default_value = "out-rs/addresses.bin")]
+    address_map: PathBuf,
 
     /// Address to generate a proof for.
     #[arg(long)]
@@ -43,12 +39,6 @@ struct Meta {
     address_map: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct LookupEntry {
-    address: String,
-    index: usize,
-}
-
 fn main() -> Result<()> {
     let args = Args::parse();
     let meta: Meta = read_meta(&args.meta)?;
@@ -62,12 +52,8 @@ fn main() -> Result<()> {
     let address = args.address.to_lowercase();
     let addr_bytes = parse_address(&address)?;
 
-    // Prefer address map if provided or present in meta; otherwise use lookup shards.
-    let index = if let Some(map_path) = resolve_address_map(&args, &meta, &layers_dir) {
-        find_index_from_map(&addr_bytes, &map_path, meta.leaf_count)?
-    } else {
-        find_index_lookup(&address, &args.lookup_dir)?
-    };
+    let map_path = resolve_address_map(&args, &meta, &layers_dir)?;
+    let index = find_index_from_map(&addr_bytes, &map_path)?;
     let proof = build_proof(index, &meta, &layers_dir)?;
 
     println!("address: {address}");
@@ -85,23 +71,6 @@ fn read_meta(path: &Path) -> Result<Meta> {
     let reader = BufReader::new(file);
     let meta: Meta = serde_json::from_reader(reader)?;
     Ok(meta)
-}
-
-fn find_index_lookup(address: &str, lookup_dir: &Path) -> Result<usize> {
-    if !address.starts_with("0x") || address.len() != 42 {
-        return Err("address must be 0x-prefixed and 40 hex chars".into());
-    }
-    let shard = &address[2..6];
-    let path = lookup_dir.join(format!("{shard}.json"));
-    let file = File::open(&path)
-        .map_err(|e| format!("failed to open lookup shard {}: {}", path.display(), e))?;
-    let entries: Vec<LookupEntry> = serde_json::from_reader(BufReader::new(file))?;
-    for entry in entries {
-        if entry.address.to_lowercase() == address {
-            return Ok(entry.index);
-        }
-    }
-    Err(format!("address not found in shard {}", shard).into())
 }
 
 fn build_proof(index: usize, meta: &Meta, layers_dir: &Path) -> Result<Vec<String>> {
@@ -129,36 +98,37 @@ fn parse_address(addr: &str) -> Result<[u8; 20]> {
     Ok(out)
 }
 
-fn resolve_address_map(args: &Args, meta: &Meta, layers_dir: &Path) -> Option<PathBuf> {
-    if let Some(path) = &args.address_map {
-        return Some(path.clone());
-    }
+fn resolve_address_map(args: &Args, meta: &Meta, layers_dir: &Path) -> Result<PathBuf> {
     if let Some(name) = &meta.address_map {
-        return Some(layers_dir.join(name));
+        Ok(layers_dir.join(name))
+    } else {
+        Ok(args.address_map.clone())
     }
-    None
 }
 
-fn find_index_from_map(target: &[u8; 20], path: &Path, _leaf_count: usize) -> Result<usize> {
+fn find_index_from_map(target: &[u8; 20], path: &Path) -> Result<usize> {
     let mut file = File::open(path)
         .map_err(|e| format!("failed to open address map {}: {}", path.display(), e))?;
-    let mut buf = vec![0u8; 20 * 4096];
-    let mut index = 0usize;
-    loop {
-        let read = file.read(&mut buf)?;
-        if read == 0 {
-            break;
-        }
-        let chunks = read / 20;
-        for i in 0..chunks {
-            let start = i * 20;
-            let end = start + 20;
-            if &buf[start..end] == target {
-                return Ok(index + i);
-            }
-        }
-        index += chunks;
+    let len = file.metadata()?.len();
+    if len % 20 != 0 {
+        return Err(format!("address map length {} is not a multiple of 20 bytes", len).into());
     }
+    let mut lo: i64 = 0;
+    let mut hi: i64 = (len / 20) as i64 - 1;
+    let mut buf = [0u8; 20];
+
+    while lo <= hi {
+        let mid = lo + ((hi - lo) / 2);
+        let offset = mid as u64 * 20;
+        file.seek(SeekFrom::Start(offset))?;
+        file.read_exact(&mut buf)?;
+        match buf.cmp(target) {
+            std::cmp::Ordering::Equal => return Ok(mid as usize),
+            std::cmp::Ordering::Less => lo = mid + 1,
+            std::cmp::Ordering::Greater => hi = mid - 1,
+        }
+    }
+
     Err(format!("address not found in address map {}", path.display()).into())
 }
 
