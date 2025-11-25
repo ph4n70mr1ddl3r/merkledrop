@@ -1,0 +1,23 @@
+name = "merkle-proof-worker"
+main = "src/index.ts"
+compatibility_date = "2024-09-02"
+compatibility_flags = ["nodejs_compat"]
+
+# Set this to your Cloudflare account id before deploying.
+# account_id = "YOUR_ACCOUNT_ID"
+
+[vars]
+# Fixed drop amount in wei (100 MAT with 18 decimals).
+CLAIM_AMOUNT = "100000000000000000000"
+# Key in the LAYERS bucket for merkle metadata (JSON as described in src/index.ts).
+META_KEY = "merkle-meta.json"
+# Folder prefix inside LOOKUP bucket where shards live (e.g., "lookup" -> lookup/abcd.json).
+LOOKUP_PREFIX = "lookup"
+
+[[r2_buckets]]
+binding = "LAYERS"
+bucket_name = "merkle-layers"
+
+[[r2_buckets]]
+binding = "LOOKUP"
+bucket_name = "merkle-lookup"
