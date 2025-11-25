@@ -7,8 +7,6 @@ compatibility_flags = ["nodejs_compat"]
 # account_id = "YOUR_ACCOUNT_ID"
 
 [vars]
-# Fixed drop amount in wei (100 MAT with 18 decimals).
-CLAIM_AMOUNT = "100000000000000000000"
 # Key in the LAYERS bucket for merkle metadata (JSON as described in src/index.ts).
 META_KEY = "merkle-meta.json"
 # Folder prefix inside LOOKUP bucket where shards live (e.g., "lookup" -> lookup/abcd.json).

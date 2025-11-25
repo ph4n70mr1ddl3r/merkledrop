@@ -1,7 +1,6 @@
 export interface Env {
   LAYERS: R2Bucket;
   LOOKUP: R2Bucket;
-  CLAIM_AMOUNT: string; // wei
   META_KEY?: string; // defaults to "merkle-meta.json"
   LOOKUP_PREFIX?: string; // defaults to "lookup"
 }
@@ -10,7 +9,6 @@ type Meta = {
   root: string; // 0x-prefixed hex
   leafCount: number;
   layerFiles: string[]; // ["layer0.bin", "layer1.bin", ...] stored in LAYERS bucket
-  claimAmount?: string; // optional override; otherwise Env.CLAIM_AMOUNT
   hashFn?: string;
   leafEncoding?: string;
   pairOrdering?: string; // expect "sorted"
@@ -28,7 +26,7 @@ export default {
     try {
       if (url.pathname === "/info") {
         const meta = await loadMeta(env);
-        return cors(json({ root: meta.root, leafCount: meta.leafCount, claimAmount: effectiveClaimAmount(meta, env) }));
+        return cors(json({ root: meta.root, leafCount: meta.leafCount }));
       }
 
       if (url.pathname === "/proof") {
@@ -42,7 +40,7 @@ export default {
         if (!entry) return cors(error("address not eligible", 404));
 
         const proof = await buildProof(entry.index, meta, env);
-        return cors(json({ ...entry, amount: effectiveClaimAmount(meta, env), proof, root: meta.root }));
+        return cors(json({ ...entry, proof, root: meta.root }));
       }
 
       return cors(new Response("not found", { status: 404 }));
@@ -62,10 +60,6 @@ async function loadMeta(env: Env): Promise<Meta> {
   const meta = JSON.parse(await obj.text()) as Meta;
   cache.meta = meta;
   return meta;
-}
-
-function effectiveClaimAmount(meta: Meta, env: Env): string {
-  return meta.claimAmount || env.CLAIM_AMOUNT;
 }
 
 async function lookupIndex(address: string, env: Env): Promise<LookupEntry | null> {

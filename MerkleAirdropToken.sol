@@ -94,7 +94,8 @@ contract MerkleAirdropToken {
         require(account != address(0), "bad account");
         require(!_isClaimed(index), "already claimed");
 
-        bytes32 leaf = keccak256(abi.encodePacked(index, account, CLAIM_AMOUNT));
+        // Leaf omits amount; amount is fixed at CLAIM_AMOUNT in the contract.
+        bytes32 leaf = keccak256(abi.encodePacked(index, account));
         require(MerkleProof.verify(merkleProof, merkleRoot, leaf), "bad proof");
 
         _setClaimed(index);
