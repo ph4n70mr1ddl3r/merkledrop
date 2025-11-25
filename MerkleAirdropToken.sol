@@ -16,7 +16,7 @@ contract MerkleAirdropToken {
     address public owner;
 
     // --- Airdrop config ---
-    bytes32 public constant MERKLE_ROOT = 0xad8e7f58951f3c7e420c283701ce5fc1400d1971fc5aee2f624978f6be335cfe;
+    bytes32 public constant MERKLE_ROOT = 0xa01f0b3e6bb71c6def808a77cfa19f3a603bbacc26b6e260051c80e63bf77556;
     uint256 public constant CLAIM_AMOUNT = 100 ether; // 100 MAT with 18 decimals
     bool public airdropEnded;
 
@@ -94,7 +94,7 @@ contract MerkleAirdropToken {
         require(!_isClaimed(index), "already claimed");
 
         // Leaf omits amount; amount is fixed at CLAIM_AMOUNT in the contract.
-        bytes32 leaf = keccak256(abi.encodePacked(index, account));
+        bytes32 leaf = keccak256(abi.encode(index, account));
         require(MerkleProof.verify(merkleProof, MERKLE_ROOT, leaf), "bad proof");
 
         _setClaimed(index);

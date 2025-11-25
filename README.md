@@ -37,7 +37,7 @@ cargo run --release --manifest-path rust-merkle/Cargo.toml --bin proof -- \
   --meta out-rs/merkle-meta.json \
   --layers-dir out-rs
 ```
-If `addressMap` is present in `merkle-meta.json` and layers live next to it, you can omit `--address-map`/`--layers-dir`. The proof helper binary-searches the globally sorted `addresses.bin` to resolve the leaf index.
+If `addressMap` is present in `merkle-meta.json` and layers live next to it, you can omit `--address-map`/`--layers-dir`. The proof helper binary-searches the globally sorted `addresses.bin` to resolve the leaf index. Note: leaves now use `keccak256(abi.encode(index, address))`; regenerate layers/meta and update the contract root if you previously used `abi.encodePacked`.
 
 ## Verify sorting (optional)
 To fully scan and confirm `addresses.bin` is globally sorted:

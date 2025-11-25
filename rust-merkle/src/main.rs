@@ -66,7 +66,7 @@ fn main() -> Result<()> {
     let layer0_name = format!("{}{:02}.bin", args.layer_prefix, 0);
     let layer0_path = args.out.join(&layer0_name);
 
-    let mut leaf_count = 0usize;
+    let leaf_count: usize;
     let started_at = std::time::Instant::now();
 
     if args.address_lines {
@@ -122,7 +122,7 @@ fn main() -> Result<()> {
         leaf_count,
         hash_fn: "keccak256".to_string(),
         leaf_encoding: if args.address_lines {
-            "abi.encodePacked(index,address)".to_string()
+            "abi.encode(index,address)".to_string()
         } else {
             "keccak256(file_bytes)".to_string()
         },
@@ -317,12 +317,12 @@ fn parse_address(s: &str) -> Result<[u8; 20]> {
 }
 
 fn hash_index_address(index: usize, address: &[u8; 20]) -> [u8; 32] {
-    let mut idx_bytes = [0u8; 32];
-    idx_bytes[24..32].copy_from_slice(&(index as u64).to_be_bytes());
-    let mut hasher = Keccak256::new();
-    hasher.update(&idx_bytes);
-    hasher.update(address);
-    let digest = hasher.finalize();
+    // Matches keccak256(abi.encode(index, address)):
+    // index as 32-byte big-endian, address left-padded to 32 bytes.
+    let mut buf = [0u8; 64];
+    buf[24..32].copy_from_slice(&(index as u64).to_be_bytes());
+    buf[44..64].copy_from_slice(address);
+    let digest = Keccak256::digest(&buf);
     let mut out = [0u8; 32];
     out.copy_from_slice(&digest);
     out
