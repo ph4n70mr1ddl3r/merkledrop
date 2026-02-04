@@ -24,6 +24,7 @@ struct Args {
     chunk: usize,
 }
 
+/// Verifies that an addresses.bin file is globally sorted in ascending order.
 fn main() -> Result<()> {
     let args = Args::parse();
     let meta = std::fs::metadata(&args.addresses)?;
@@ -90,4 +91,14 @@ fn main() -> Result<()> {
     pb.finish_and_clear();
     println!("OK: {} addresses sorted ascending", total_addrs);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_address_size() {
+        assert_eq!(ADDRESS_SIZE, 20);
+    }
 }

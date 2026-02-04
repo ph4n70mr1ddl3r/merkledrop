@@ -103,11 +103,16 @@ contract MerkleAirdropToken {
 
 
     // --- Airdrop logic ---
+    /// @notice Claim tokens for an address using a Merkle proof
+    /// @param index The index of the address in the Merkle tree
+    /// @param account The address claiming tokens
+    /// @param merkleProof The Merkle proof for the address
     function claim(uint256 index, address account, bytes32[] calldata merkleProof) external nonReentrant {
         require(!airdropEnded, "airdrop has ended");
         require(account != address(0), "invalid account address");
         require(MERKLE_ROOT != bytes32(0), "invalid merkle root");
         require(merkleProof.length > 0, "empty merkle proof");
+        require(index < type(uint256).max, "index out of bounds");
         require(!_isClaimed(index), "address already claimed");
 
         bytes32 leaf = keccak256(abi.encode(index, account));
@@ -118,10 +123,15 @@ contract MerkleAirdropToken {
         emit Claimed(index, account, CLAIM_AMOUNT);
     }
 
+    /// @notice Check if an index has been claimed
+    /// @param index The index to check
+    /// @return bool True if the index has been claimed
     function isClaimed(uint256 index) external view returns (bool) {
         return _isClaimed(index);
     }
 
+    /// @notice End the airdrop, preventing further claims
+    /// @dev Only callable by the owner
     function endAirdrop() external onlyOwner {
         require(!airdropEnded, "already ended");
         airdropEnded = true;
@@ -129,6 +139,9 @@ contract MerkleAirdropToken {
     }
 
     // --- Ownership ---
+    /// @notice Initiate ownership transfer to a new owner
+    /// @param newOwner The address to transfer ownership to
+    /// @dev The new owner must call acceptOwnership to complete the transfer
     function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "cannot transfer to zero address");
         require(newOwner != owner, "already owner");
@@ -136,6 +149,8 @@ contract MerkleAirdropToken {
         emit OwnershipTransferInitiated(owner, newOwner);
     }
 
+    /// @notice Accept pending ownership transfer
+    /// @dev Only callable by the pending owner
     function acceptOwnership() external {
         require(msg.sender == pendingOwner, "caller is not pending owner");
         emit OwnershipTransferred(owner, msg.sender);

@@ -78,6 +78,7 @@ fn read_meta(path: &Path) -> Result<Meta> {
     Ok(meta)
 }
 
+/// Builds a Merkle proof for the given leaf index by traversing the tree layers.
 fn build_proof(index: usize, meta: &Meta, layers_dir: &Path) -> Result<Vec<String>> {
     let mut idx = index;
     let mut width = meta.leaf_count;
@@ -104,6 +105,7 @@ fn resolve_address_map(args: &Args, meta: &Meta, layers_dir: &Path) -> Result<Pa
     }
 }
 
+/// Binary searches the address map to find the index of a target address.
 fn find_index_from_map(target: &[u8; ADDRESS_SIZE], path: &Path) -> Result<usize> {
     let mut file = File::open(path)
         .map_err(|e| format!("failed to open address map {}: {}", path.display(), e))?;
@@ -139,13 +141,29 @@ fn find_index_from_map(target: &[u8; ADDRESS_SIZE], path: &Path) -> Result<usize
     .into())
 }
 
+/// Reads a single hash from a layer file at the specified index.
 fn read_hash(path: &Path, index: usize) -> Result<[u8; HASH_SIZE]> {
     let mut file =
         File::open(path).map_err(|e| format!("failed to open layer {}: {}", path.display(), e))?;
     let offset = index * HASH_SIZE;
-    file.seek(SeekFrom::Start(offset as u64))?;
+    file.seek(SeekFrom::Start(offset as u64)).map_err(|e| {
+        format!(
+            "failed to seek to offset {} (index {}) in {}: {}",
+            offset,
+            index,
+            path.display(),
+            e
+        )
+    })?;
     let mut buf = [0u8; HASH_SIZE];
-    file.read_exact(&mut buf)?;
+    file.read_exact(&mut buf).map_err(|e| {
+        format!(
+            "failed to read hash at index {} from {}: {}",
+            index,
+            path.display(),
+            e
+        )
+    })?;
     Ok(buf)
 }
 
@@ -155,5 +173,30 @@ fn sibling_index(idx: usize, width: usize) -> usize {
         sib
     } else {
         idx
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sibling_index_even() {
+        assert_eq!(sibling_index(0, 4), 1);
+        assert_eq!(sibling_index(2, 4), 3);
+        assert_eq!(sibling_index(10, 20), 11);
+    }
+
+    #[test]
+    fn test_sibling_index_odd() {
+        assert_eq!(sibling_index(1, 4), 0);
+        assert_eq!(sibling_index(3, 4), 2);
+        assert_eq!(sibling_index(11, 20), 10);
+    }
+
+    #[test]
+    fn test_sibling_index_odd_width() {
+        assert_eq!(sibling_index(2, 3), 2);
+        assert_eq!(sibling_index(4, 5), 4);
     }
 }

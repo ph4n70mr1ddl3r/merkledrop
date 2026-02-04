@@ -233,8 +233,8 @@ fn build_layer0_from_addresses(
         }
         if n % ADDRESS_SIZE != 0 {
             return Err(format!(
-                "address map read not aligned to {} bytes (read {} bytes at index {})",
-                ADDRESS_SIZE, n, index
+                "address map read not aligned to {} bytes (read {} bytes at index {}), file may be corrupted: {}",
+                ADDRESS_SIZE, n, index, address_map.display()
             )
             .into());
         }
@@ -256,7 +256,7 @@ fn build_layer0_from_addresses(
     writer.flush()?;
     if index != leaf_count {
         return Err(format!(
-            "leaf count mismatch: expected {}, wrote {}",
+            "leaf count mismatch: expected {}, wrote {}. This may indicate a mismatch between the address count and the actual data.",
             leaf_count, index
         )
         .into());
@@ -312,6 +312,7 @@ fn resolve_path(entry: &str, base: &Path) -> PathBuf {
     }
 }
 
+/// Computes the Keccak256 hash of a file's contents.
 fn hash_file(path: &Path) -> Result<[u8; HASH_SIZE]> {
     let mut file = File::open(path)?;
     let mut hasher = Keccak256::new();
@@ -329,6 +330,8 @@ fn hash_file(path: &Path) -> Result<[u8; HASH_SIZE]> {
     Ok(out)
 }
 
+/// Computes the leaf hash for an index and address pair using Keccak256.
+/// Matches Solidity's keccak256(abi.encode(index, address)).
 fn hash_index_address(index: usize, address: &[u8; ADDRESS_SIZE]) -> [u8; HASH_SIZE] {
     let mut buf = [0u8; 64];
     buf[24..32].copy_from_slice(&(index as u64).to_be_bytes());
@@ -339,6 +342,8 @@ fn hash_index_address(index: usize, address: &[u8; ADDRESS_SIZE]) -> [u8; HASH_S
     out
 }
 
+/// Builds the next layer of the Merkle tree from the previous layer.
+/// Each pair of hashes from the previous layer is combined to form a parent hash.
 fn build_parent_layer(prev: &Path, width: usize, out: &Path) -> Result<usize> {
     let mut reader = BufReader::new(File::open(prev)?);
     let mut writer = BufWriter::new(File::create(out)?);
@@ -365,6 +370,8 @@ fn build_parent_layer(prev: &Path, width: usize, out: &Path) -> Result<usize> {
     Ok(parents)
 }
 
+/// Hashes a pair of hashes in sorted order using Keccak256.
+/// Matches Solidity's sorted pair hashing for Merkle proof verification.
 fn hash_pair(a: &[u8; HASH_SIZE], b: &[u8; HASH_SIZE]) -> [u8; HASH_SIZE] {
     let (left, right) = if a <= b { (a, b) } else { (b, a) };
     let mut hasher = Keccak256::new();
