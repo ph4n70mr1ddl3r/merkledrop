@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-use rust_merkle::{parse_address, ADDRESS_SIZE, HASH_SIZE};
+use rust_merkle::{ensure_file_exists, parse_address, ADDRESS_SIZE, HASH_SIZE};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -199,14 +199,6 @@ fn sibling_index(idx: usize, width: usize) -> usize {
     } else {
         idx
     }
-}
-
-/// Ensures a file exists, returning an error if it doesn't.
-fn ensure_file_exists(path: &Path, description: &str) -> Result<()> {
-    if !path.exists() {
-        return Err(format!("{} does not exist: {}", description, path.display()).into());
-    }
-    Ok(())
 }
 
 #[cfg(test)]

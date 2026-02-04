@@ -5,7 +5,7 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
-use rust_merkle::{parse_address, ADDRESS_SIZE, HASH_SIZE};
+use rust_merkle::{ensure_file_exists, parse_address, ADDRESS_SIZE, HASH_SIZE};
 
 const ADDRESSES_PER_BUF: usize = 4096;
 const BUF_SIZE_ADDRESSES: usize = ADDRESS_SIZE * ADDRESSES_PER_BUF;
@@ -451,14 +451,6 @@ fn validate_sorted(path: &Path) -> Result<()> {
             prev = Some(current);
             index += 1;
         }
-    }
-    Ok(())
-}
-
-/// Ensures a file exists, returning an error if it doesn't.
-fn ensure_file_exists(path: &Path, description: &str) -> Result<()> {
-    if !path.exists() {
-        return Err(format!("{} does not exist: {}", description, path.display()).into());
     }
     Ok(())
 }

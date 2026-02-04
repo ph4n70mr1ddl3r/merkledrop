@@ -1,6 +1,7 @@
 use sha3::Digest;
 use std::error::Error;
 use std::fmt;
+use std::path::Path;
 
 pub const ADDRESS_SIZE: usize = 20;
 pub const HASH_SIZE: usize = 32;
@@ -129,6 +130,17 @@ fn validate_checksum(original: &str, _address: &[u8; ADDRESS_SIZE]) -> Result<()
                 address: original.to_string(),
             });
         }
+    }
+    Ok(())
+}
+
+/// Ensures a file exists, returning an error if it doesn't.
+pub fn ensure_file_exists(
+    path: &Path,
+    description: &str,
+) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if !path.exists() {
+        return Err(format!("{} does not exist: {}", description, path.display()).into());
     }
     Ok(())
 }

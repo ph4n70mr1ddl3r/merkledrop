@@ -182,10 +182,12 @@ contract MerkleAirdropToken {
     /// @param to The address to send recovered tokens to
     /// @param amount The amount to recover
     function recoverTokens(address token, address to, uint256 amount) external onlyOwner {
+        require(token != address(0), "invalid token address");
         require(to != address(0), "cannot recover to zero address");
         require(token != address(this), "cannot recover own token");
         require(IERC20(token).balanceOf(address(this)) >= amount, "insufficient balance");
-        IERC20(token).transfer(to, amount);
+        bool success = IERC20(token).transfer(to, amount);
+        require(success, "token transfer failed");
         emit TokensRecovered(token, to, amount);
     }
 
@@ -317,4 +319,5 @@ library MerkleProof {
 /// @notice Minimal ERC20 interface for token recovery
 interface IERC20 {
     function transfer(address to, uint256 value) external returns (bool);
+    function balanceOf(address account) external view returns (uint256);
 }
