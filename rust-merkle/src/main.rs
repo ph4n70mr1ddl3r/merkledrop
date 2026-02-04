@@ -232,7 +232,11 @@ fn build_layer0_from_addresses(
             break;
         }
         if n % ADDRESS_SIZE != 0 {
-            return Err(format!("address map read not aligned to {} bytes", ADDRESS_SIZE).into());
+            return Err(format!(
+                "address map read not aligned to {} bytes (read {} bytes at index {})",
+                ADDRESS_SIZE, n, index
+            )
+            .into());
         }
         let addrs = n / ADDRESS_SIZE;
         for i in 0..addrs {

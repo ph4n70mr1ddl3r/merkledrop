@@ -96,8 +96,8 @@ contract MerkleAirdropToken {
         return true;
     }
 
-    function allowance(address _owner, address spender) external view returns (uint256) {
-        return _allowances[_owner][spender];
+    function allowance(address owner, address spender) external view returns (uint256) {
+        return _allowances[owner][spender];
     }
 
 
@@ -106,6 +106,7 @@ contract MerkleAirdropToken {
     function claim(uint256 index, address account, bytes32[] calldata merkleProof) external nonReentrant {
         require(!airdropEnded, "airdrop has ended");
         require(account != address(0), "invalid account address");
+        require(MERKLE_ROOT != bytes32(0), "invalid merkle root");
         require(merkleProof.length > 0, "empty merkle proof");
         require(!_isClaimed(index), "address already claimed");
 
@@ -154,10 +155,10 @@ contract MerkleAirdropToken {
         emit Transfer(from, to, value);
     }
 
-    function _approve(address _owner, address spender, uint256 value) internal {
+    function _approve(address owner, address spender, uint256 value) internal {
         require(spender != address(0), "approve to zero");
-        _allowances[_owner][spender] = value;
-        emit Approval(_owner, spender, value);
+        _allowances[owner][spender] = value;
+        emit Approval(owner, spender, value);
     }
 
     function _mint(address to, uint256 value) internal {

@@ -88,7 +88,7 @@ fn build_proof(index: usize, meta: &Meta, layers_dir: &Path) -> Result<Vec<Strin
             break;
         }
         let sibling = sibling_index(idx, width);
-        let sibling_hash = read_hash(layers_dir.join(layer_file), sibling)?;
+        let sibling_hash = read_hash(&layers_dir.join(layer_file), sibling)?;
         proof.push(format!("0x{}", hex::encode(sibling_hash)));
         idx /= 2;
         width = width.div_ceil(2);
@@ -139,9 +139,9 @@ fn find_index_from_map(target: &[u8; ADDRESS_SIZE], path: &Path) -> Result<usize
     .into())
 }
 
-fn read_hash(path: PathBuf, index: usize) -> Result<[u8; HASH_SIZE]> {
+fn read_hash(path: &Path, index: usize) -> Result<[u8; HASH_SIZE]> {
     let mut file =
-        File::open(&path).map_err(|e| format!("failed to open layer {}: {}", path.display(), e))?;
+        File::open(path).map_err(|e| format!("failed to open layer {}: {}", path.display(), e))?;
     let offset = index * HASH_SIZE;
     file.seek(SeekFrom::Start(offset as u64))?;
     let mut buf = [0u8; HASH_SIZE];

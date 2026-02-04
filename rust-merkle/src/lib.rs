@@ -4,12 +4,17 @@ const ADDRESS_SIZE: usize = 20;
 
 pub fn parse_address(s: &str) -> Result<[u8; ADDRESS_SIZE], Box<dyn Error + Send + Sync>> {
     let trimmed = s.strip_prefix("0x").unwrap_or(s);
-    if trimmed.len() != ADDRESS_SIZE * 2 || !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+    if trimmed.len() != ADDRESS_SIZE * 2 {
         return Err(format!(
-            "Invalid address: '{}' (expected 42 chars: '0x' followed by 40 hex digits)",
-            s
+            "Invalid address length: '{}' has {} chars, expected {} hex digits (42 chars total with 0x)",
+            s,
+            trimmed.len(),
+            ADDRESS_SIZE * 2
         )
         .into());
+    }
+    if !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!("Invalid address: '{}' contains non-hex characters", s).into());
     }
     let bytes = hex::decode(trimmed)?;
     let mut out = [0u8; ADDRESS_SIZE];
