@@ -47,6 +47,6 @@ cargo run --release --manifest-path rust-merkle/Cargo.toml --bin check-sorted --
 
 ## Airdrop contract
 - Fixed claim: 100 MAT (18 decimals), minted on successful proof.
-- Leaf encoding: `keccak256(abi.encodePacked(index, account))`.
+- Leaf encoding: `keccak256(abi.encode(index, address))`.
 - Owner can end the airdrop at any time; bitmap prevents double claims.
 - File: `MerkleAirdropToken.sol`.

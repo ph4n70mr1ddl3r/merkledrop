@@ -328,7 +328,7 @@ fn hash_file(path: &Path) -> Result<[u8; HASH_SIZE]> {
 fn hash_index_address(index: usize, address: &[u8; ADDRESS_SIZE]) -> [u8; HASH_SIZE] {
     let mut buf = [0u8; 64];
     buf[24..32].copy_from_slice(&(index as u64).to_be_bytes());
-    buf[44..64].copy_from_slice(address);
+    buf[32..52].copy_from_slice(address);
     let digest = Keccak256::digest(buf);
     let mut out = [0u8; HASH_SIZE];
     out.copy_from_slice(&digest);

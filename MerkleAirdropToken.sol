@@ -3,6 +3,7 @@ pragma solidity ^0.8.23;
 
 /// @title MerkleAirdropToken
 /// @notice ERC20 token with on-claim minting gated by a Merkle whitelist.
+/// @dev Uses keccak256(abi.encode(index, address)) for leaf encoding
 contract MerkleAirdropToken {
     // --- ERC20 storage ---
     string private constant _NAME = "Merkle Airdrop Token";
@@ -106,7 +107,7 @@ contract MerkleAirdropToken {
     function claim(uint256 index, address account, bytes32[] calldata merkleProof) external nonReentrant {
         require(!airdropEnded, "airdrop has ended");
         require(account != address(0), "invalid account address");
-        require(index < 0xffffffffffffffff, "index exceeds valid range");
+        require(merkleProof.length > 0, "empty merkle proof");
         require(!_isClaimed(index), "address already claimed");
 
         bytes32 leaf = keccak256(abi.encode(index, account));
