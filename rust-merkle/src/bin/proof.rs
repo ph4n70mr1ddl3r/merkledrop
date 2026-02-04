@@ -4,10 +4,7 @@ use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-use rust_merkle::parse_address;
-
-const ADDRESS_SIZE: usize = 20;
-const HASH_SIZE: usize = 32;
+use rust_merkle::{parse_address, ADDRESS_SIZE, HASH_SIZE};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -26,8 +23,8 @@ struct Args {
     layers_dir: Option<PathBuf>,
 
     /// Address map (20 bytes per address in leaf order). Defaults to meta.addressMap if present.
-    #[arg(long, default_value = "out-rs/addresses.bin")]
-    address_map: PathBuf,
+    #[arg(long)]
+    address_map: Option<PathBuf>,
 
     /// Address to generate a proof for.
     #[arg(long)]
@@ -92,7 +89,7 @@ fn build_proof(index: usize, meta: &Meta, layers_dir: &Path) -> Result<Vec<Strin
             break;
         }
         let sibling = sibling_index(idx, width);
-        let sibling_hash = read_hash(&layers_dir.join(layer_file), sibling)?;
+        let sibling_hash = read_hash(&layers_dir.join(layer_file), sibling, width)?;
         proof.push(format!("0x{}", hex::encode(sibling_hash)));
         idx /= 2;
         width = width.div_ceil(2);
@@ -103,16 +100,17 @@ fn build_proof(index: usize, meta: &Meta, layers_dir: &Path) -> Result<Vec<Strin
 fn resolve_address_map(args: &Args, meta: &Meta, layers_dir: &Path) -> Result<PathBuf> {
     if let Some(name) = &meta.address_map {
         Ok(layers_dir.join(name))
+    } else if let Some(ref path) = args.address_map {
+        Ok(path.clone())
     } else {
-        Ok(args.address_map.clone())
+        Err("no address map provided and none found in metadata".into())
     }
 }
 
 /// Binary searches the address map to find the index of a target address.
 fn find_index_from_map(target: &[u8; ADDRESS_SIZE], path: &Path) -> Result<usize> {
-    if !path.exists() {
-        return Err(format!("address map does not exist: {}", path.display()).into());
-    }
+    ensure_file_exists(path, "address map")?;
+
     let mut file = File::open(path)
         .map_err(|e| format!("failed to open address map {}: {}", path.display(), e))?;
     let len = file.metadata()?.len();
@@ -123,8 +121,14 @@ fn find_index_from_map(target: &[u8; ADDRESS_SIZE], path: &Path) -> Result<usize
         )
         .into());
     }
+
+    let count = (len / ADDRESS_SIZE as u64) as usize;
+    if count == 0 {
+        return Err(format!("address map {} is empty", path.display()).into());
+    }
+
     let mut lo: i64 = 0;
-    let mut hi: i64 = (len / ADDRESS_SIZE as u64) as i64 - 1;
+    let mut hi: i64 = count as i64 - 1;
     let mut buf = [0u8; ADDRESS_SIZE];
 
     while lo <= hi {
@@ -148,10 +152,20 @@ fn find_index_from_map(target: &[u8; ADDRESS_SIZE], path: &Path) -> Result<usize
 }
 
 /// Reads a single hash from a layer file at the specified index.
-fn read_hash(path: &Path, index: usize) -> Result<[u8; HASH_SIZE]> {
-    if !path.exists() {
-        return Err(format!("layer file does not exist: {}", path.display()).into());
+/// Ensures the index is within the layer's width before seeking.
+fn read_hash(path: &Path, index: usize, width: usize) -> Result<[u8; HASH_SIZE]> {
+    ensure_file_exists(path, "layer file")?;
+
+    if index >= width {
+        return Err(format!(
+            "index {} out of bounds for layer {} (width {})",
+            index,
+            path.display(),
+            width
+        )
+        .into());
     }
+
     let mut file =
         File::open(path).map_err(|e| format!("failed to open layer {}: {}", path.display(), e))?;
     let offset = index * HASH_SIZE;
@@ -183,6 +197,14 @@ fn sibling_index(idx: usize, width: usize) -> usize {
     } else {
         idx
     }
+}
+
+/// Ensures a file exists, returning an error if it doesn't.
+fn ensure_file_exists(path: &Path, description: &str) -> Result<()> {
+    if !path.exists() {
+        return Err(format!("{} does not exist: {}", description, path.display()).into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

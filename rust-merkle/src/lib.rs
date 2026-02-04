@@ -1,7 +1,8 @@
 use std::error::Error;
 use std::fmt;
 
-const ADDRESS_SIZE: usize = 20;
+pub const ADDRESS_SIZE: usize = 20;
+pub const HASH_SIZE: usize = 32;
 
 #[derive(Debug)]
 pub enum AddressError {
@@ -106,6 +107,15 @@ mod tests {
         assert!(result.is_ok());
         let addr = result.unwrap();
         assert_eq!(addr, [0u8; 20]);
+    }
+
+    #[test]
+    fn test_parse_address_mixed_case() {
+        let addr_str = "0xAbCdEf1234567890aBcDeF1234567890AbCdEf00";
+        let result = parse_address(addr_str);
+        assert!(result.is_ok());
+        let addr = result.unwrap();
+        assert_eq!(addr.len(), 20);
     }
 
     #[test]

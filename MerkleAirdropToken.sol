@@ -23,8 +23,8 @@ contract MerkleAirdropToken {
     uint256 private _locked;
 
     // --- Airdrop config ---
-    bytes32 public constant MERKLE_ROOT = 0xa01f0b3e6bb71c6def808a77cfa19f3a603bbacc26b6e260051c80e63bf77556;
-    uint256 public constant CLAIM_AMOUNT = 100 ether; // 100 MAT with 18 decimals
+    bytes32 public immutable merkleRoot;
+    uint256 public immutable claimAmount;
     bool public airdropEnded;
 
     // --- Claim bitmap (index => claimed) ---
@@ -38,6 +38,7 @@ contract MerkleAirdropToken {
     event OwnershipTransferInitiated(address indexed currentOwner, address indexed pendingOwner);
     event Claimed(uint256 indexed index, address indexed account, uint256 amount);
     event AirdropEnded(address indexed endedBy, uint256 timestamp);
+    event TokensRecovered(address indexed token, address indexed to, uint256 amount);
 
     // --- Modifiers ---
     modifier onlyOwner() {
@@ -52,9 +53,14 @@ contract MerkleAirdropToken {
         _locked = _NOT_ENTERED;
     }
 
-    constructor() {
+    /// @param _merkleRoot The Merkle root hash for proof verification
+    /// @param _claimAmount The amount of tokens to claim per address
+    constructor(bytes32 _merkleRoot, uint256 _claimAmount) {
+        require(_claimAmount > 0, "claim amount must be > 0");
         owner = msg.sender;
         _locked = _NOT_ENTERED;
+        merkleRoot = _merkleRoot;
+        claimAmount = _claimAmount;
         emit OwnershipTransferred(address(0), msg.sender);
     }
 
@@ -104,8 +110,6 @@ contract MerkleAirdropToken {
         return _allowances[owner][spender];
     }
 
-
-
     // --- Airdrop logic ---
     /// @notice Claim tokens for an address using a Merkle proof
     /// @param index The index of the address in the Merkle tree
@@ -114,16 +118,16 @@ contract MerkleAirdropToken {
     function claim(uint256 index, address account, bytes32[] calldata merkleProof) external nonReentrant {
         require(!airdropEnded, "airdrop has ended");
         require(account != address(0), "invalid account address");
-        require(MERKLE_ROOT != bytes32(0), "invalid merkle root");
+        require(merkleRoot != bytes32(0), "invalid merkle root");
         require(merkleProof.length > 0, "empty merkle proof");
         require(!_isClaimed(index), "address already claimed");
 
         bytes32 leaf = keccak256(abi.encode(index, account));
-        require(MerkleProof.verify(merkleProof, MERKLE_ROOT, leaf), "invalid merkle proof");
+        require(MerkleProof.verify(merkleProof, merkleRoot, leaf), "invalid merkle proof");
 
         _setClaimed(index);
-        _mint(account, CLAIM_AMOUNT);
-        emit Claimed(index, account, CLAIM_AMOUNT);
+        _mint(account, claimAmount);
+        emit Claimed(index, account, claimAmount);
     }
 
     /// @notice Check if an index has been claimed
@@ -141,6 +145,17 @@ contract MerkleAirdropToken {
         emit AirdropEnded(msg.sender, block.timestamp);
     }
 
+    /// @notice Recover ERC20 tokens accidentally sent to the contract
+    /// @param token The token address to recover
+    /// @param to The address to send recovered tokens to
+    /// @param amount The amount to recover
+    function recoverTokens(address token, address to, uint256 amount) external onlyOwner {
+        require(to != address(0), "cannot recover to zero address");
+        require(token != address(this), "cannot recover own token");
+       IERC20(token).transfer(to, amount);
+        emit TokensRecovered(token, to, amount);
+    }
+
     // --- Ownership ---
     /// @notice Initiate ownership transfer to a new owner
     /// @param newOwner The address to transfer ownership to
@@ -156,9 +171,10 @@ contract MerkleAirdropToken {
     /// @dev Only callable by the pending owner
     function acceptOwnership() external {
         require(msg.sender == pendingOwner, "caller is not pending owner");
-        emit OwnershipTransferred(owner, msg.sender);
+        address previousOwner = owner;
         owner = msg.sender;
         pendingOwner = address(0);
+        emit OwnershipTransferred(previousOwner, msg.sender);
     }
 
     // --- Internal ERC20 helpers ---
@@ -187,6 +203,8 @@ contract MerkleAirdropToken {
     }
 
     // --- Claim bitmap helpers ---
+    /// @param index The leaf index in the Merkle tree
+    /// @return bool True if the index has been claimed
     function _isClaimed(uint256 index) internal view returns (bool) {
         uint256 wordIndex = index >> 8;
         uint256 bitIndex = index & 0xff;
@@ -195,6 +213,7 @@ contract MerkleAirdropToken {
         return (word & mask) == mask;
     }
 
+    /// @param index The leaf index in the Merkle tree to mark as claimed
     function _setClaimed(uint256 index) internal {
         uint256 wordIndex = index >> 8;
         uint256 bitIndex = index & 0xff;
@@ -221,8 +240,11 @@ library MerkleProof {
     /// @return bytes32 The computed root hash from the proof
     function processProof(bytes32[] calldata proof, bytes32 leaf) internal pure returns (bytes32) {
         bytes32 computed = leaf;
-        for (uint256 i = 0; i < proof.length; i++) {
+        for (uint256 i = 0; i < proof.length; ) {
             computed = _hashPair(computed, proof[i]);
+            unchecked {
+                ++i;
+            }
         }
         return computed;
     }
@@ -234,4 +256,10 @@ library MerkleProof {
     function _hashPair(bytes32 a, bytes32 b) private pure returns (bytes32) {
         return a < b ? keccak256(abi.encodePacked(a, b)) : keccak256(abi.encodePacked(b, a));
     }
+}
+
+/// @title IERC20
+/// @notice Minimal ERC20 interface for token recovery
+interface IERC20 {
+    function transfer(address to, uint256 value) external returns (bool);
 }

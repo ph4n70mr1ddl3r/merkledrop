@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
 
-const ADDRESS_SIZE: usize = 20;
+use rust_merkle::ADDRESS_SIZE;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -38,8 +38,12 @@ fn main() -> Result<()> {
 
     let meta = std::fs::metadata(&args.addresses)?;
     let len = meta.len();
-    if len % 20 != 0 {
-        return Err(format!("addresses.bin length {} is not a multiple of 20 bytes", len).into());
+    if len % ADDRESS_SIZE as u64 != 0 {
+        return Err(format!(
+            "addresses.bin length {} is not a multiple of {} bytes",
+            len, ADDRESS_SIZE
+        )
+        .into());
     }
     let total_addrs = (len / ADDRESS_SIZE as u64) as usize;
     println!(
@@ -48,6 +52,11 @@ fn main() -> Result<()> {
         args.addresses.display(),
         len
     );
+
+    if total_addrs == 0 {
+        println!("OK: file is empty");
+        return Ok(());
+    }
 
     let pb = ProgressBar::new(len);
     pb.set_style(

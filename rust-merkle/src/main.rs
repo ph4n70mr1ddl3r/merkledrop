@@ -5,10 +5,8 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
-use rust_merkle::parse_address;
+use rust_merkle::{parse_address, ADDRESS_SIZE, HASH_SIZE};
 
-const ADDRESS_SIZE: usize = 20;
-const HASH_SIZE: usize = 32;
 const BUF_SIZE_ADDRESSES: usize = ADDRESS_SIZE * 4096;
 const BUF_SIZE_HASHING: usize = 8192;
 
@@ -151,12 +149,10 @@ fn main() -> Result<()> {
 }
 
 fn write_addresses(args: &Args, map_path: &Path) -> Result<usize> {
+    ensure_file_exists(&args.manifest, "manifest file")?;
+
     let mut writer = BufWriter::new(File::create(map_path)?);
     let mut count = 0usize;
-
-    if !args.manifest.exists() {
-        return Err(format!("manifest file does not exist: {}", args.manifest.display()).into());
-    }
 
     let file = File::open(&args.manifest)
         .map_err(|e| format!("failed to open manifest {}: {}", args.manifest.display(), e))?;
@@ -186,9 +182,7 @@ fn write_addresses_from_file(
     log_interval: usize,
     mut count: usize,
 ) -> Result<usize> {
-    if !path.exists() {
-        return Err(format!("address file does not exist: {}", path.display()).into());
-    }
+    ensure_file_exists(path, "address file")?;
 
     let file = File::open(path)
         .map_err(|e| format!("failed to open address file {}: {}", path.display(), e))?;
@@ -273,12 +267,10 @@ fn build_layer0_from_addresses(
 }
 
 fn build_layer0_from_files(args: &Args, layer0_path: &Path) -> Result<usize> {
+    ensure_file_exists(&args.manifest, "manifest file")?;
+
     let mut writer = BufWriter::new(File::create(layer0_path)?);
     let mut count = 0usize;
-
-    if !args.manifest.exists() {
-        return Err(format!("manifest file does not exist: {}", args.manifest.display()).into());
-    }
 
     let file = File::open(&args.manifest)?;
     let reader = BufReader::new(file);
@@ -306,9 +298,7 @@ fn hash_file_into(
     log_interval: usize,
     mut count: usize,
 ) -> Result<usize> {
-    if !path.exists() {
-        return Err(format!("file does not exist: {}", path.display()).into());
-    }
+    ensure_file_exists(path, "file")?;
 
     let leaf = hash_file(path)?;
     writer.write_all(&leaf)?;
@@ -392,23 +382,18 @@ fn build_parent_layer(prev: &Path, width: usize, out: &Path) -> Result<usize> {
 /// Hashes a pair of hashes in sorted order using Keccak256.
 /// Matches Solidity's sorted pair hashing for Merkle proof verification.
 fn hash_pair(a: &[u8; HASH_SIZE], b: &[u8; HASH_SIZE]) -> [u8; HASH_SIZE] {
+    let mut hasher = Keccak256::new();
     if a <= b {
-        let mut hasher = Keccak256::new();
         hasher.update(a);
         hasher.update(b);
-        let digest = hasher.finalize();
-        let mut out = [0u8; HASH_SIZE];
-        out.copy_from_slice(&digest);
-        out
     } else {
-        let mut hasher = Keccak256::new();
         hasher.update(b);
         hasher.update(a);
-        let digest = hasher.finalize();
-        let mut out = [0u8; HASH_SIZE];
-        out.copy_from_slice(&digest);
-        out
     }
+    let digest = hasher.finalize();
+    let mut out = [0u8; HASH_SIZE];
+    out.copy_from_slice(&digest);
+    out
 }
 
 fn read_first_hash(path: &Path) -> Result<[u8; HASH_SIZE]> {
@@ -420,4 +405,12 @@ fn read_first_hash(path: &Path) -> Result<[u8; HASH_SIZE]> {
 
 fn to_hex(bytes: &[u8]) -> String {
     format!("0x{}", hex::encode(bytes))
+}
+
+/// Ensures a file exists, returning an error if it doesn't.
+fn ensure_file_exists(path: &Path, description: &str) -> Result<()> {
+    if !path.exists() {
+        return Err(format!("{} does not exist: {}", description, path.display()).into());
+    }
+    Ok(())
 }
