@@ -15,7 +15,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>
 struct Args {
     /// Manifest file with newline-separated paths (processed in order).
     #[arg(long, default_value = "shards/manifest.txt")]
-    manifest: Option<PathBuf>,
+    manifest: PathBuf,
 
     /// Base directory to resolve manifest entries (ignored for absolute paths).
     #[arg(long, default_value = "shards")]
@@ -147,18 +147,16 @@ fn write_addresses(args: &Args, map_path: &Path) -> Result<usize> {
     let mut writer = BufWriter::new(File::create(map_path)?);
     let mut count = 0usize;
 
-    if let Some(manifest) = &args.manifest {
-        let file = File::open(manifest)?;
-        let reader = BufReader::new(file);
-        for line in reader.lines() {
-            let line = line?;
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            let path = resolve_path(trimmed, &args.base);
-            count = write_addresses_from_file(&path, &mut writer, args.log_interval, count)?;
+    let file = File::open(&args.manifest)?;
+    let reader = BufReader::new(file);
+    for line in reader.lines() {
+        let line = line?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
         }
+        let path = resolve_path(trimmed, &args.base);
+        count = write_addresses_from_file(&path, &mut writer, args.log_interval, count)?;
     }
 
     for file in &args.files {
@@ -242,18 +240,16 @@ fn build_layer0_from_files(args: &Args, layer0_path: &Path) -> Result<usize> {
     let mut writer = BufWriter::new(File::create(layer0_path)?);
     let mut count = 0usize;
 
-    if let Some(manifest) = &args.manifest {
-        let file = File::open(manifest)?;
-        let reader = BufReader::new(file);
-        for line in reader.lines() {
-            let line = line?;
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            let path = resolve_path(trimmed, &args.base);
-            count = hash_file_into(&path, &mut writer, args.log_interval, count)?;
+    let file = File::open(&args.manifest)?;
+    let reader = BufReader::new(file);
+    for line in reader.lines() {
+        let line = line?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
         }
+        let path = resolve_path(trimmed, &args.base);
+        count = hash_file_into(&path, &mut writer, args.log_interval, count)?;
     }
 
     for file in &args.files {
@@ -308,7 +304,7 @@ fn hash_file(path: &Path) -> Result<[u8; 32]> {
 fn parse_address(s: &str) -> Result<[u8; 20]> {
     let trimmed = s.strip_prefix("0x").unwrap_or(s).to_lowercase();
     if trimmed.len() != 40 || !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(format!("Invalid address: {}", s).into());
+        return Err(format!("Invalid address: {} (must be 40 hex chars)", s).into());
     }
     let bytes = hex::decode(trimmed)?;
     let mut out = [0u8; 20];
@@ -373,10 +369,5 @@ fn read_first_hash(path: &Path) -> Result<[u8; 32]> {
 }
 
 fn to_hex(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(2 + bytes.len() * 2);
-    out.push_str("0x");
-    for b in bytes {
-        out.push_str(&format!("{:02x}", b));
-    }
-    out
+    format!("0x{}", hex::encode(bytes))
 }

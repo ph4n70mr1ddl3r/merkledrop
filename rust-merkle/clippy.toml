@@ -1,0 +1,6 @@
+# Clippy configuration for rust-merkle project
+# Avoid too many arguments warnings (some functions legitimately need many args)
+too-many-arguments-threshold = 12
+
+# Allow type complexity for error handling
+type-complexity-threshold = 250

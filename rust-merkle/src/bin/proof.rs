@@ -89,10 +89,11 @@ fn build_proof(index: usize, meta: &Meta, layers_dir: &Path) -> Result<Vec<Strin
 }
 
 fn parse_address(addr: &str) -> Result<[u8; 20]> {
-    if !addr.starts_with("0x") || addr.len() != 42 {
-        return Err("address must be 0x-prefixed and 40 hex chars".into());
+    let trimmed = addr.strip_prefix("0x").unwrap_or(addr).to_lowercase();
+    if trimmed.len() != 40 || !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!("Invalid address: {} (must be 40 hex chars)", addr).into());
     }
-    let bytes = hex::decode(&addr[2..])?;
+    let bytes = hex::decode(trimmed)?;
     let mut out = [0u8; 20];
     out.copy_from_slice(&bytes);
     Ok(out)
