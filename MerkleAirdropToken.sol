@@ -119,7 +119,6 @@ contract MerkleAirdropToken {
         require(!airdropEnded, "airdrop has ended");
         require(account != address(0), "invalid account address");
         require(merkleRoot != bytes32(0), "invalid merkle root");
-        require(merkleProof.length > 0, "empty merkle proof");
         require(!_isClaimed(index), "address already claimed");
 
         bytes32 leaf = keccak256(abi.encode(index, account));
@@ -152,7 +151,7 @@ contract MerkleAirdropToken {
     function recoverTokens(address token, address to, uint256 amount) external onlyOwner {
         require(to != address(0), "cannot recover to zero address");
         require(token != address(this), "cannot recover own token");
-       IERC20(token).transfer(to, amount);
+        IERC20(token).transfer(to, amount);
         emit TokensRecovered(token, to, amount);
     }
 

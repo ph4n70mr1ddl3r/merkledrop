@@ -144,9 +144,11 @@ fn find_index_from_map(target: &[u8; ADDRESS_SIZE], path: &Path) -> Result<usize
     }
 
     Err(format!(
-        "address 0x{} not found in address map {}",
+        "address 0x{} not found in address map {} (checked {} addresses, file size {} bytes)",
         hex::encode(target),
-        path.display()
+        path.display(),
+        count,
+        len
     )
     .into())
 }

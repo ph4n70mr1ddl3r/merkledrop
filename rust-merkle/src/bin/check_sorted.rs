@@ -65,7 +65,11 @@ fn main() -> Result<()> {
     );
 
     let mut reader = BufReader::new(File::open(&args.addresses)?);
-    let mut buf = vec![0u8; args.chunk * ADDRESS_SIZE];
+    let buf_size = args
+        .chunk
+        .checked_mul(ADDRESS_SIZE)
+        .ok_or("chunk size overflow")?;
+    let mut buf = vec![0u8; buf_size];
     let mut prev: Option<[u8; ADDRESS_SIZE]> = None;
     let mut index: usize = 0;
 
