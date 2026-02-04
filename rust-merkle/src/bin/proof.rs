@@ -4,6 +4,9 @@ use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
+const ADDRESS_SIZE: usize = 20;
+const HASH_SIZE: usize = 32;
+
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 #[derive(Parser, Debug)]
@@ -76,9 +79,12 @@ fn read_meta(path: &Path) -> Result<Meta> {
 fn build_proof(index: usize, meta: &Meta, layers_dir: &Path) -> Result<Vec<String>> {
     let mut idx = index;
     let mut width = meta.leaf_count;
-    let mut proof = Vec::with_capacity(meta.layer_files.len());
+    let mut proof = Vec::with_capacity(meta.layer_files.len().saturating_sub(1));
 
-    for layer_file in &meta.layer_files {
+    for (i, layer_file) in meta.layer_files.iter().enumerate() {
+        if i == meta.layer_files.len() - 1 {
+            break;
+        }
         let sibling = sibling_index(idx, width);
         let sibling_hash = read_hash(layers_dir.join(layer_file), sibling)?;
         proof.push(format!("0x{}", hex::encode(sibling_hash)));
@@ -88,13 +94,18 @@ fn build_proof(index: usize, meta: &Meta, layers_dir: &Path) -> Result<Vec<Strin
     Ok(proof)
 }
 
-fn parse_address(addr: &str) -> Result<[u8; 20]> {
+fn parse_address(addr: &str) -> Result<[u8; ADDRESS_SIZE]> {
     let trimmed = addr.strip_prefix("0x").unwrap_or(addr).to_lowercase();
-    if trimmed.len() != 40 || !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(format!("Invalid address: {} (must be 40 hex chars)", addr).into());
+    if trimmed.len() != ADDRESS_SIZE * 2 || !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!(
+            "Invalid address: {} (must be {} hex chars)",
+            addr,
+            ADDRESS_SIZE * 2
+        )
+        .into());
     }
     let bytes = hex::decode(trimmed)?;
-    let mut out = [0u8; 20];
+    let mut out = [0u8; ADDRESS_SIZE];
     out.copy_from_slice(&bytes);
     Ok(out)
 }
@@ -107,20 +118,24 @@ fn resolve_address_map(args: &Args, meta: &Meta, layers_dir: &Path) -> Result<Pa
     }
 }
 
-fn find_index_from_map(target: &[u8; 20], path: &Path) -> Result<usize> {
+fn find_index_from_map(target: &[u8; ADDRESS_SIZE], path: &Path) -> Result<usize> {
     let mut file = File::open(path)
         .map_err(|e| format!("failed to open address map {}: {}", path.display(), e))?;
     let len = file.metadata()?.len();
-    if len % 20 != 0 {
-        return Err(format!("address map length {} is not a multiple of 20 bytes", len).into());
+    if len % ADDRESS_SIZE as u64 != 0 {
+        return Err(format!(
+            "address map length {} is not a multiple of {} bytes",
+            len, ADDRESS_SIZE
+        )
+        .into());
     }
     let mut lo: i64 = 0;
-    let mut hi: i64 = (len / 20) as i64 - 1;
-    let mut buf = [0u8; 20];
+    let mut hi: i64 = (len / ADDRESS_SIZE as u64) as i64 - 1;
+    let mut buf = [0u8; ADDRESS_SIZE];
 
     while lo <= hi {
         let mid = lo + ((hi - lo) / 2);
-        let offset = mid as u64 * 20;
+        let offset = mid as u64 * ADDRESS_SIZE as u64;
         file.seek(SeekFrom::Start(offset))?;
         file.read_exact(&mut buf)?;
         match buf.cmp(target) {
@@ -130,15 +145,20 @@ fn find_index_from_map(target: &[u8; 20], path: &Path) -> Result<usize> {
         }
     }
 
-    Err(format!("address not found in address map {}", path.display()).into())
+    Err(format!(
+        "address 0x{} not found in address map {}",
+        hex::encode(target),
+        path.display()
+    )
+    .into())
 }
 
-fn read_hash(path: PathBuf, index: usize) -> Result<[u8; 32]> {
+fn read_hash(path: PathBuf, index: usize) -> Result<[u8; HASH_SIZE]> {
     let mut file =
         File::open(&path).map_err(|e| format!("failed to open layer {}: {}", path.display(), e))?;
-    let offset = index * 32;
+    let offset = index * HASH_SIZE;
     file.seek(SeekFrom::Start(offset as u64))?;
-    let mut buf = [0u8; 32];
+    let mut buf = [0u8; HASH_SIZE];
     file.read_exact(&mut buf)?;
     Ok(buf)
 }

@@ -5,6 +5,11 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
+const ADDRESS_SIZE: usize = 20;
+const HASH_SIZE: usize = 32;
+const BUF_SIZE_ADDRESSES: usize = ADDRESS_SIZE * 4096;
+const BUF_SIZE_HASHING: usize = 8192;
+
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 #[derive(Parser, Debug)]
@@ -147,10 +152,12 @@ fn write_addresses(args: &Args, map_path: &Path) -> Result<usize> {
     let mut writer = BufWriter::new(File::create(map_path)?);
     let mut count = 0usize;
 
-    let file = File::open(&args.manifest)?;
+    let file = File::open(&args.manifest)
+        .map_err(|e| format!("failed to open manifest {}: {}", args.manifest.display(), e))?;
     let reader = BufReader::new(file);
-    for line in reader.lines() {
-        let line = line?;
+    for (line_num, line) in reader.lines().enumerate() {
+        let line =
+            line.map_err(|e| format!("read error at line {} in manifest: {}", line_num + 1, e))?;
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -173,15 +180,30 @@ fn write_addresses_from_file(
     log_interval: usize,
     mut count: usize,
 ) -> Result<usize> {
-    let file = File::open(path)?;
+    let file = File::open(path)
+        .map_err(|e| format!("failed to open address file {}: {}", path.display(), e))?;
     let reader = BufReader::new(file);
-    for line in reader.lines() {
-        let line = line?;
+    for (line_num, line) in reader.lines().enumerate() {
+        let line = line.map_err(|e| {
+            format!(
+                "read error at line {} in {}: {}",
+                line_num + 1,
+                path.display(),
+                e
+            )
+        })?;
         let addr_str = line.trim();
         if addr_str.is_empty() {
             continue;
         }
-        let addr = parse_address(addr_str)?;
+        let addr = parse_address(addr_str).map_err(|e| {
+            format!(
+                "invalid address at line {} in {}: {}",
+                line_num + 1,
+                path.display(),
+                e
+            )
+        })?;
         writer.write_all(&addr)?;
         count += 1;
         if log_interval > 0 && count.is_multiple_of(log_interval) {
@@ -199,7 +221,7 @@ fn build_layer0_from_addresses(
 ) -> Result<()> {
     let mut reader = BufReader::new(File::open(address_map)?);
     let mut writer = BufWriter::new(File::create(layer0_path)?);
-    let mut buf = vec![0u8; 20 * 4096];
+    let mut buf = vec![0u8; BUF_SIZE_ADDRESSES];
     let mut index = 0usize;
 
     loop {
@@ -207,14 +229,14 @@ fn build_layer0_from_addresses(
         if n == 0 {
             break;
         }
-        if n % 20 != 0 {
-            return Err("address map read not aligned to 20 bytes".into());
+        if n % ADDRESS_SIZE != 0 {
+            return Err(format!("address map read not aligned to {} bytes", ADDRESS_SIZE).into());
         }
-        let addrs = n / 20;
+        let addrs = n / ADDRESS_SIZE;
         for i in 0..addrs {
-            let start = i * 20;
-            let end = start + 20;
-            let mut addr = [0u8; 20];
+            let start = i * ADDRESS_SIZE;
+            let end = start + ADDRESS_SIZE;
+            let mut addr = [0u8; ADDRESS_SIZE];
             addr.copy_from_slice(&buf[start..end]);
             let leaf = hash_index_address(index, &addr);
             writer.write_all(&leaf)?;
@@ -284,10 +306,10 @@ fn resolve_path(entry: &str, base: &Path) -> PathBuf {
     }
 }
 
-fn hash_file(path: &Path) -> Result<[u8; 32]> {
+fn hash_file(path: &Path) -> Result<[u8; HASH_SIZE]> {
     let mut file = File::open(path)?;
     let mut hasher = Keccak256::new();
-    let mut buf = [0u8; 8192];
+    let mut buf = [0u8; BUF_SIZE_HASHING];
     loop {
         let n = file.read(&mut buf)?;
         if n == 0 {
@@ -296,30 +318,33 @@ fn hash_file(path: &Path) -> Result<[u8; 32]> {
         hasher.update(&buf[..n]);
     }
     let digest = hasher.finalize();
-    let mut out = [0u8; 32];
+    let mut out = [0u8; HASH_SIZE];
     out.copy_from_slice(&digest);
     Ok(out)
 }
 
-fn parse_address(s: &str) -> Result<[u8; 20]> {
+fn parse_address(s: &str) -> Result<[u8; ADDRESS_SIZE]> {
     let trimmed = s.strip_prefix("0x").unwrap_or(s).to_lowercase();
-    if trimmed.len() != 40 || !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(format!("Invalid address: {} (must be 40 hex chars)", s).into());
+    if trimmed.len() != ADDRESS_SIZE * 2 || !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!(
+            "Invalid address: {} (must be {} hex chars)",
+            s,
+            ADDRESS_SIZE * 2
+        )
+        .into());
     }
     let bytes = hex::decode(trimmed)?;
-    let mut out = [0u8; 20];
+    let mut out = [0u8; ADDRESS_SIZE];
     out.copy_from_slice(&bytes);
     Ok(out)
 }
 
-fn hash_index_address(index: usize, address: &[u8; 20]) -> [u8; 32] {
-    // Matches keccak256(abi.encode(index, address)):
-    // index as 32-byte big-endian, address left-padded to 32 bytes.
+fn hash_index_address(index: usize, address: &[u8; ADDRESS_SIZE]) -> [u8; HASH_SIZE] {
     let mut buf = [0u8; 64];
     buf[24..32].copy_from_slice(&(index as u64).to_be_bytes());
     buf[44..64].copy_from_slice(address);
     let digest = Keccak256::digest(buf);
-    let mut out = [0u8; 32];
+    let mut out = [0u8; HASH_SIZE];
     out.copy_from_slice(&digest);
     out
 }
@@ -328,8 +353,8 @@ fn build_parent_layer(prev: &Path, width: usize, out: &Path) -> Result<usize> {
     let mut reader = BufReader::new(File::open(prev)?);
     let mut writer = BufWriter::new(File::create(out)?);
 
-    let mut left = [0u8; 32];
-    let mut right = [0u8; 32];
+    let mut left = [0u8; HASH_SIZE];
+    let mut right = [0u8; HASH_SIZE];
     let mut parents = 0usize;
     let mut i = 0usize;
 
@@ -338,7 +363,7 @@ fn build_parent_layer(prev: &Path, width: usize, out: &Path) -> Result<usize> {
         if i + 1 < width {
             reader.read_exact(&mut right)?;
         } else {
-            right.copy_from_slice(&left); // duplicate last
+            right.copy_from_slice(&left);
         }
         let parent = hash_pair(&left, &right);
         writer.write_all(&parent)?;
@@ -350,20 +375,20 @@ fn build_parent_layer(prev: &Path, width: usize, out: &Path) -> Result<usize> {
     Ok(parents)
 }
 
-fn hash_pair(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
+fn hash_pair(a: &[u8; HASH_SIZE], b: &[u8; HASH_SIZE]) -> [u8; HASH_SIZE] {
     let (left, right) = if a <= b { (a, b) } else { (b, a) };
     let mut hasher = Keccak256::new();
     hasher.update(left);
     hasher.update(right);
     let digest = hasher.finalize();
-    let mut out = [0u8; 32];
+    let mut out = [0u8; HASH_SIZE];
     out.copy_from_slice(&digest);
     out
 }
 
-fn read_first_hash(path: &Path) -> Result<[u8; 32]> {
+fn read_first_hash(path: &Path) -> Result<[u8; HASH_SIZE]> {
     let mut reader = BufReader::new(File::open(path)?);
-    let mut buf = [0u8; 32];
+    let mut buf = [0u8; HASH_SIZE];
     reader.read_exact(&mut buf)?;
     Ok(buf)
 }

@@ -14,6 +14,10 @@ contract MerkleAirdropToken {
 
     // --- Ownership ---
     address public owner;
+    address public pendingOwner;
+
+    // --- Reentrancy guard ---
+    uint256 private _locked;
 
     // --- Airdrop config ---
     bytes32 public constant MERKLE_ROOT = 0xa01f0b3e6bb71c6def808a77cfa19f3a603bbacc26b6e260051c80e63bf77556;
@@ -27,6 +31,7 @@ contract MerkleAirdropToken {
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferInitiated(address indexed currentOwner, address indexed pendingOwner);
     event Claimed(uint256 indexed index, address indexed account, uint256 amount);
     event AirdropEnded(address indexed endedBy, uint256 timestamp);
 
@@ -36,8 +41,16 @@ contract MerkleAirdropToken {
         _;
     }
 
+    modifier nonReentrant() {
+        require(_locked == 1, "reentrant call");
+        _locked = 2;
+        _;
+        _locked = 1;
+    }
+
     constructor() {
         owner = msg.sender;
+        _locked = 1;
         emit OwnershipTransferred(address(0), msg.sender);
     }
 
@@ -68,15 +81,6 @@ contract MerkleAirdropToken {
         return true;
     }
 
-    function approve(address spender, uint256 value) external returns (bool) {
-        _approve(msg.sender, spender, value);
-        return true;
-    }
-
-    function allowance(address _owner, address spender) external view returns (uint256) {
-        return _allowances[_owner][spender];
-    }
-
     function transferFrom(address from, address to, uint256 value) external returns (bool) {
         uint256 allowed = _allowances[from][msg.sender];
         require(allowed >= value, "allowance exceeded");
@@ -87,15 +91,26 @@ contract MerkleAirdropToken {
         return true;
     }
 
-    // --- Airdrop logic ---
-    function claim(uint256 index, address account, bytes32[] calldata merkleProof) external {
-        require(!airdropEnded, "airdrop ended");
-        require(account != address(0), "bad account");
-        require(!_isClaimed(index), "already claimed");
+    function approve(address spender, uint256 value) external returns (bool) {
+        _approve(msg.sender, spender, value);
+        return true;
+    }
 
-        // Leaf omits amount; amount is fixed at CLAIM_AMOUNT in the contract.
+    function allowance(address _owner, address spender) external view returns (uint256) {
+        return _allowances[_owner][spender];
+    }
+
+
+
+    // --- Airdrop logic ---
+    function claim(uint256 index, address account, bytes32[] calldata merkleProof) external nonReentrant {
+        require(!airdropEnded, "airdrop has ended");
+        require(account != address(0), "invalid account address");
+        require(index < 0xffffffffffffffff, "index exceeds valid range");
+        require(!_isClaimed(index), "address already claimed");
+
         bytes32 leaf = keccak256(abi.encode(index, account));
-        require(MerkleProof.verify(merkleProof, MERKLE_ROOT, leaf), "bad proof");
+        require(MerkleProof.verify(merkleProof, MERKLE_ROOT, leaf), "invalid merkle proof");
 
         _setClaimed(index);
         _mint(account, CLAIM_AMOUNT);
@@ -114,9 +129,17 @@ contract MerkleAirdropToken {
 
     // --- Ownership ---
     function transferOwnership(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "zero owner");
-        emit OwnershipTransferred(owner, newOwner);
-        owner = newOwner;
+        require(newOwner != address(0), "cannot transfer to zero address");
+        require(newOwner != owner, "already owner");
+        pendingOwner = newOwner;
+        emit OwnershipTransferInitiated(owner, newOwner);
+    }
+
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "caller is not pending owner");
+        emit OwnershipTransferred(owner, msg.sender);
+        owner = msg.sender;
+        pendingOwner = address(0);
     }
 
     // --- Internal ERC20 helpers ---

@@ -5,6 +5,8 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
 
+const ADDRESS_SIZE: usize = 20;
+
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 #[derive(Parser, Debug)]
@@ -29,7 +31,7 @@ fn main() -> Result<()> {
     if len % 20 != 0 {
         return Err(format!("addresses.bin length {} is not a multiple of 20 bytes", len).into());
     }
-    let total_addrs = (len / 20) as usize;
+    let total_addrs = (len / ADDRESS_SIZE as u64) as usize;
     println!(
         "Checking {} addresses in {} ({} bytes)…",
         total_addrs,
@@ -44,8 +46,8 @@ fn main() -> Result<()> {
     );
 
     let mut reader = BufReader::new(File::open(&args.addresses)?);
-    let mut buf = vec![0u8; args.chunk * 20];
-    let mut prev: Option<[u8; 20]> = None;
+    let mut buf = vec![0u8; args.chunk * ADDRESS_SIZE];
+    let mut prev: Option<[u8; ADDRESS_SIZE]> = None;
     let mut index: usize = 0;
 
     loop {
@@ -53,23 +55,30 @@ fn main() -> Result<()> {
         if n == 0 {
             break;
         }
-        if n % 20 != 0 {
+        if n % ADDRESS_SIZE != 0 {
             return Err(format!(
-                "read {} bytes which is not a multiple of 20 (corrupt file?)",
-                n
+                "read {} bytes which is not a multiple of {} (corrupt file?)",
+                n, ADDRESS_SIZE
             )
             .into());
         }
-        let count = n / 20;
+        let count = n / ADDRESS_SIZE;
         for i in 0..count {
-            let start = i * 20;
-            let end = start + 20;
-            let mut current = [0u8; 20];
+            let start = i * ADDRESS_SIZE;
+            let end = start + ADDRESS_SIZE;
+            let mut current = [0u8; ADDRESS_SIZE];
             current.copy_from_slice(&buf[start..end]);
             if let Some(p) = prev {
                 if p.cmp(&current) == Ordering::Greater {
                     pb.finish_and_clear();
-                    return Err(format!("not sorted at index {} -> {}", index - 1, index).into());
+                    return Err(format!(
+                        "not sorted at index {} -> {} (0x{} > 0x{})",
+                        index - 1,
+                        index,
+                        hex::encode(p),
+                        hex::encode(current)
+                    )
+                    .into());
                 }
             }
             prev = Some(current);
