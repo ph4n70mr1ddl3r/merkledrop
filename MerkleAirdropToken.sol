@@ -25,6 +25,7 @@ contract MerkleAirdropToken {
     // --- Airdrop config ---
     bytes32 public immutable merkleRoot;
     uint256 public immutable claimAmount;
+    uint256 public immutable maxSupply;
     bool public airdropEnded;
 
     // --- Claim bitmap (index => claimed) ---
@@ -39,6 +40,7 @@ contract MerkleAirdropToken {
     event Claimed(uint256 indexed index, address indexed account, uint256 amount);
     event AirdropEnded(address indexed endedBy, uint256 timestamp);
     event TokensRecovered(address indexed token, address indexed to, uint256 amount);
+    event ETHRecovered(address indexed to, uint256 amount);
 
     // --- Modifiers ---
     modifier onlyOwner() {
@@ -55,12 +57,16 @@ contract MerkleAirdropToken {
 
     /// @param _merkleRoot The Merkle root hash for proof verification
     /// @param _claimAmount The amount of tokens to claim per address
-    constructor(bytes32 _merkleRoot, uint256 _claimAmount) {
+    /// @param _maxSupply Maximum total supply (typically leafCount * claimAmount)
+    constructor(bytes32 _merkleRoot, uint256 _claimAmount, uint256 _maxSupply) {
         require(_claimAmount > 0, "claim amount must be > 0");
+        require(_merkleRoot != bytes32(0), "invalid merkle root");
+        require(_maxSupply > 0, "max supply must be > 0");
         owner = msg.sender;
         _locked = _NOT_ENTERED;
         merkleRoot = _merkleRoot;
         claimAmount = _claimAmount;
+        maxSupply = _maxSupply;
         emit OwnershipTransferred(address(0), msg.sender);
     }
 
@@ -118,7 +124,6 @@ contract MerkleAirdropToken {
     function claim(uint256 index, address account, bytes32[] calldata merkleProof) external nonReentrant {
         require(!airdropEnded, "airdrop has ended");
         require(account != address(0), "invalid account address");
-        require(merkleRoot != bytes32(0), "invalid merkle root");
         require(!_isClaimed(index), "address already claimed");
 
         bytes32 leaf = keccak256(abi.encode(index, account));
@@ -151,8 +156,17 @@ contract MerkleAirdropToken {
     function recoverTokens(address token, address to, uint256 amount) external onlyOwner {
         require(to != address(0), "cannot recover to zero address");
         require(token != address(this), "cannot recover own token");
+        require(IERC20(token).balanceOf(address(this)) >= amount, "insufficient balance");
         IERC20(token).transfer(to, amount);
         emit TokensRecovered(token, to, amount);
+    }
+
+    function recoverETH(address payable to, uint256 amount) external onlyOwner {
+        require(to != address(0), "cannot recover to zero address");
+        require(address(this).balance >= amount, "insufficient ETH balance");
+        (bool success, ) = to.call{value: amount}("");
+        require(success, "ETH transfer failed");
+        emit ETHRecovered(to, amount);
     }
 
     // --- Ownership ---
@@ -176,6 +190,12 @@ contract MerkleAirdropToken {
         emit OwnershipTransferred(previousOwner, msg.sender);
     }
 
+    function cancelOwnershipTransfer() external onlyOwner {
+        require(pendingOwner != address(0), "no pending transfer");
+        pendingOwner = address(0);
+        emit OwnershipTransferInitiated(owner, address(0));
+    }
+
     // --- Internal ERC20 helpers ---
     function _transfer(address from, address to, uint256 value) internal {
         require(to != address(0), "transfer to zero");
@@ -196,6 +216,7 @@ contract MerkleAirdropToken {
 
     function _mint(address to, uint256 value) internal {
         require(to != address(0), "mint to zero");
+        require(_totalSupply + value <= maxSupply, "exceeds max supply");
         _totalSupply += value;
         _balances[to] += value;
         emit Transfer(address(0), to, value);

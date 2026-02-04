@@ -173,6 +173,7 @@ fn write_addresses(args: &Args, map_path: &Path) -> Result<usize> {
     }
 
     writer.flush()?;
+    validate_sorted(map_path)?;
     Ok(count)
 }
 
@@ -405,6 +406,49 @@ fn read_first_hash(path: &Path) -> Result<[u8; HASH_SIZE]> {
 
 fn to_hex(bytes: &[u8]) -> String {
     format!("0x{}", hex::encode(bytes))
+}
+
+/// Validates that an address map file is globally sorted in ascending order.
+fn validate_sorted(path: &Path) -> Result<()> {
+    let mut reader = BufReader::new(File::open(path)?);
+    let mut buf = vec![0u8; ADDRESS_SIZE * 4096];
+    let mut prev: Option<[u8; ADDRESS_SIZE]> = None;
+    let mut index = 0;
+
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        if n % ADDRESS_SIZE != 0 {
+            return Err(format!(
+                "address map not aligned to {} bytes (read {} bytes at index {}), file may be corrupted: {}",
+                ADDRESS_SIZE, n, index, path.display()
+            ).into());
+        }
+        let count = n / ADDRESS_SIZE;
+        for i in 0..count {
+            let start = i * ADDRESS_SIZE;
+            let end = start + ADDRESS_SIZE;
+            let mut current = [0u8; ADDRESS_SIZE];
+            current.copy_from_slice(&buf[start..end]);
+            if let Some(p) = prev {
+                if p > current {
+                    return Err(format!(
+                        "address map not sorted at index {} (0x{} > 0x{}), file: {}",
+                        index - 1,
+                        hex::encode(p),
+                        hex::encode(current),
+                        path.display()
+                    )
+                    .into());
+                }
+            }
+            prev = Some(current);
+            index += 1;
+        }
+    }
+    Ok(())
 }
 
 /// Ensures a file exists, returning an error if it doesn't.
