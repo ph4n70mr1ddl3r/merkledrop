@@ -69,6 +69,9 @@ fn main() -> Result<()> {
         .chunk
         .checked_mul(ADDRESS_SIZE)
         .ok_or("chunk size overflow")?;
+    if buf_size == 0 {
+        return Err("chunk size must be positive".into());
+    }
     let mut buf = vec![0u8; buf_size];
     let mut prev: Option<[u8; ADDRESS_SIZE]> = None;
     let mut index: usize = 0;

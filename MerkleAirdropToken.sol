@@ -71,32 +71,52 @@ contract MerkleAirdropToken {
     }
 
     // --- ERC20 view functions ---
+    /// @notice Returns the name of the token
+    /// @return The token name
     function name() external pure returns (string memory) {
         return _NAME;
     }
 
+    /// @notice Returns the symbol of the token
+    /// @return The token symbol
     function symbol() external pure returns (string memory) {
         return _SYMBOL;
     }
 
+    /// @notice Returns the number of decimals used by the token
+    /// @return The token decimals
     function decimals() external pure returns (uint8) {
         return _DECIMALS;
     }
 
+    /// @notice Returns the total supply of the token
+    /// @return The total token supply
     function totalSupply() external view returns (uint256) {
         return _totalSupply;
     }
 
+    /// @notice Returns the token balance of an account
+    /// @param account The address to query
+    /// @return The token balance of the account
     function balanceOf(address account) external view returns (uint256) {
         return _balances[account];
     }
 
     // --- ERC20 core ---
+    /// @notice Transfers tokens to a specified address
+    /// @param to The address to transfer to
+    /// @param value The amount to transfer
+    /// @return bool True if successful
     function transfer(address to, uint256 value) external returns (bool) {
         _transfer(msg.sender, to, value);
         return true;
     }
 
+    /// @notice Transfers tokens from one address to another using allowance
+    /// @param from The address to transfer from
+    /// @param to The address to transfer to
+    /// @param value The amount to transfer
+    /// @return bool True if successful
     function transferFrom(address from, address to, uint256 value) external returns (bool) {
         uint256 allowed = _allowances[from][msg.sender];
         require(allowed >= value, "allowance exceeded");
@@ -107,11 +127,19 @@ contract MerkleAirdropToken {
         return true;
     }
 
+    /// @notice Approves a spender to spend tokens on behalf of the owner
+    /// @param spender The address to approve
+    /// @param value The amount to approve
+    /// @return bool True if successful
     function approve(address spender, uint256 value) external returns (bool) {
         _approve(msg.sender, spender, value);
         return true;
     }
 
+    /// @notice Returns the remaining allowance for a spender
+    /// @param owner The token owner
+    /// @param spender The approved spender
+    /// @return uint256 The remaining allowance
     function allowance(address owner, address spender) external view returns (uint256) {
         return _allowances[owner][spender];
     }
@@ -161,6 +189,9 @@ contract MerkleAirdropToken {
         emit TokensRecovered(token, to, amount);
     }
 
+    /// @notice Recover ETH accidentally sent to the contract
+    /// @param to The address to send recovered ETH to
+    /// @param amount The amount to recover
     function recoverETH(address payable to, uint256 amount) external onlyOwner {
         require(to != address(0), "cannot recover to zero address");
         require(address(this).balance >= amount, "insufficient ETH balance");
@@ -190,6 +221,8 @@ contract MerkleAirdropToken {
         emit OwnershipTransferred(previousOwner, msg.sender);
     }
 
+    /// @notice Cancel a pending ownership transfer
+    /// @dev Only callable by the owner
     function cancelOwnershipTransfer() external onlyOwner {
         require(pendingOwner != address(0), "no pending transfer");
         pendingOwner = address(0);
@@ -216,9 +249,11 @@ contract MerkleAirdropToken {
 
     function _mint(address to, uint256 value) internal {
         require(to != address(0), "mint to zero");
-        require(_totalSupply + value <= maxSupply, "exceeds max supply");
-        _totalSupply += value;
-        _balances[to] += value;
+        require(_totalSupply <= maxSupply - value, "exceeds max supply");
+        unchecked {
+            _totalSupply += value;
+            _balances[to] += value;
+        }
         emit Transfer(address(0), to, value);
     }
 

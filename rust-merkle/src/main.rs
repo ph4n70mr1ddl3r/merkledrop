@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 
 use rust_merkle::{parse_address, ADDRESS_SIZE, HASH_SIZE};
 
-const BUF_SIZE_ADDRESSES: usize = ADDRESS_SIZE * 4096;
+const ADDRESSES_PER_BUF: usize = 4096;
+const BUF_SIZE_ADDRESSES: usize = ADDRESS_SIZE * ADDRESSES_PER_BUF;
 const BUF_SIZE_HASHING: usize = 8192;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -411,7 +412,10 @@ fn to_hex(bytes: &[u8]) -> String {
 /// Validates that an address map file is globally sorted in ascending order.
 fn validate_sorted(path: &Path) -> Result<()> {
     let mut reader = BufReader::new(File::open(path)?);
-    let mut buf = vec![0u8; ADDRESS_SIZE * 4096];
+    let buf_size = ADDRESS_SIZE
+        .checked_mul(ADDRESSES_PER_BUF)
+        .ok_or("buffer size overflow")?;
+    let mut buf = vec![0u8; buf_size];
     let mut prev: Option<[u8; ADDRESS_SIZE]> = None;
     let mut index = 0;
 

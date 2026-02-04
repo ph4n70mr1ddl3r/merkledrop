@@ -124,12 +124,10 @@ fn validate_checksum(original: &str, _address: &[u8; ADDRESS_SIZE]) -> Result<()
                     address: original.to_string(),
                 });
             }
-        } else {
-            if c.is_ascii_uppercase() {
-                return Err(AddressError::InvalidChecksum {
-                    address: original.to_string(),
-                });
-            }
+        } else if c.is_ascii_uppercase() {
+            return Err(AddressError::InvalidChecksum {
+                address: original.to_string(),
+            });
         }
     }
     Ok(())
