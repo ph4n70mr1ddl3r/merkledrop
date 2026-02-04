@@ -27,6 +27,15 @@ struct Args {
 /// Verifies that an addresses.bin file is globally sorted in ascending order.
 fn main() -> Result<()> {
     let args = Args::parse();
+
+    if !args.addresses.exists() {
+        return Err(format!(
+            "addresses file does not exist: {}",
+            args.addresses.display()
+        )
+        .into());
+    }
+
     let meta = std::fs::metadata(&args.addresses)?;
     let len = meta.len();
     if len % 20 != 0 {

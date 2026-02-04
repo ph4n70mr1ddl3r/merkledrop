@@ -72,6 +72,9 @@ fn main() -> Result<()> {
 }
 
 fn read_meta(path: &Path) -> Result<Meta> {
+    if !path.exists() {
+        return Err(format!("meta file does not exist: {}", path.display()).into());
+    }
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let meta: Meta = serde_json::from_reader(reader)?;
@@ -107,6 +110,9 @@ fn resolve_address_map(args: &Args, meta: &Meta, layers_dir: &Path) -> Result<Pa
 
 /// Binary searches the address map to find the index of a target address.
 fn find_index_from_map(target: &[u8; ADDRESS_SIZE], path: &Path) -> Result<usize> {
+    if !path.exists() {
+        return Err(format!("address map does not exist: {}", path.display()).into());
+    }
     let mut file = File::open(path)
         .map_err(|e| format!("failed to open address map {}: {}", path.display(), e))?;
     let len = file.metadata()?.len();
@@ -143,6 +149,9 @@ fn find_index_from_map(target: &[u8; ADDRESS_SIZE], path: &Path) -> Result<usize
 
 /// Reads a single hash from a layer file at the specified index.
 fn read_hash(path: &Path, index: usize) -> Result<[u8; HASH_SIZE]> {
+    if !path.exists() {
+        return Err(format!("layer file does not exist: {}", path.display()).into());
+    }
     let mut file =
         File::open(path).map_err(|e| format!("failed to open layer {}: {}", path.display(), e))?;
     let offset = index * HASH_SIZE;

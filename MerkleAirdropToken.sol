@@ -18,6 +18,8 @@ contract MerkleAirdropToken {
     address public pendingOwner;
 
     // --- Reentrancy guard ---
+    uint256 private constant _NOT_ENTERED = 1;
+    uint256 private constant _ENTERED = 2;
     uint256 private _locked;
 
     // --- Airdrop config ---
@@ -26,6 +28,7 @@ contract MerkleAirdropToken {
     bool public airdropEnded;
 
     // --- Claim bitmap (index => claimed) ---
+    // Each uint256 word stores 256 claim status bits (indexes 0-255 per word)
     mapping(uint256 => uint256) private claimedBitMap;
 
     // --- Events ---
@@ -43,14 +46,15 @@ contract MerkleAirdropToken {
     }
 
     modifier nonReentrant() {
-        require(_locked == 0, "reentrant call");
-        _locked = 1;
+        require(_locked == _NOT_ENTERED, "reentrant call");
+        _locked = _ENTERED;
         _;
-        _locked = 0;
+        _locked = _NOT_ENTERED;
     }
 
     constructor() {
         owner = msg.sender;
+        _locked = _NOT_ENTERED;
         emit OwnershipTransferred(address(0), msg.sender);
     }
 
@@ -112,7 +116,6 @@ contract MerkleAirdropToken {
         require(account != address(0), "invalid account address");
         require(MERKLE_ROOT != bytes32(0), "invalid merkle root");
         require(merkleProof.length > 0, "empty merkle proof");
-        require(index < type(uint256).max, "index out of bounds");
         require(!_isClaimed(index), "address already claimed");
 
         bytes32 leaf = keccak256(abi.encode(index, account));
@@ -201,11 +204,21 @@ contract MerkleAirdropToken {
 
 /// @title MerkleProof
 /// @notice Minimal Merkle proof verification library (sorted pair hashing)
+/// @dev Uses sorted pair hashing: keccak256(abi.encodePacked(min(a,b), max(a,b)))
 library MerkleProof {
+    /// @notice Verify a Merkle proof against a root hash
+    /// @param proof The array of sibling hashes forming the proof
+    /// @param root The Merkle root hash to verify against
+    /// @param leaf The leaf hash (keccak256(abi.encode(index, address)))
+    /// @return bool True if the proof is valid
     function verify(bytes32[] calldata proof, bytes32 root, bytes32 leaf) internal pure returns (bool) {
         return processProof(proof, leaf) == root;
     }
 
+    /// @notice Process a Merkle proof by hashing leaf with each proof element
+    /// @param proof The array of sibling hashes forming the proof
+    /// @param leaf The leaf hash to start from
+    /// @return bytes32 The computed root hash from the proof
     function processProof(bytes32[] calldata proof, bytes32 leaf) internal pure returns (bytes32) {
         bytes32 computed = leaf;
         for (uint256 i = 0; i < proof.length; i++) {
@@ -214,6 +227,10 @@ library MerkleProof {
         return computed;
     }
 
+    /// @notice Hash a pair of values in sorted order for Merkle tree consistency
+    /// @param a First hash value
+    /// @param b Second hash value
+    /// @return bytes32 keccak256 of sorted pair
     function _hashPair(bytes32 a, bytes32 b) private pure returns (bytes32) {
         return a < b ? keccak256(abi.encodePacked(a, b)) : keccak256(abi.encodePacked(b, a));
     }

@@ -1,6 +1,55 @@
 use std::error::Error;
+use std::fmt;
 
 const ADDRESS_SIZE: usize = 20;
+
+#[derive(Debug)]
+pub enum AddressError {
+    InvalidLength {
+        address: String,
+        actual: usize,
+        expected: usize,
+    },
+    InvalidHex {
+        address: String,
+    },
+    DecodeError {
+        source: hex::FromHexError,
+    },
+}
+
+impl fmt::Display for AddressError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AddressError::InvalidLength { address, actual, expected } => write!(
+                f,
+                "Invalid address length: '{}' has {} chars, expected {} hex digits (42 chars total with 0x)",
+                address, actual, expected
+            ),
+            AddressError::InvalidHex { address } => write!(
+                f,
+                "Invalid address: '{}' contains non-hex characters",
+                address
+            ),
+            AddressError::DecodeError { source } => write!(f, "Failed to decode address hex: {}", source),
+        }
+    }
+}
+
+impl Error for AddressError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            AddressError::DecodeError { source } => Some(source),
+            _ => None,
+        }
+    }
+}
+
+impl From<hex::FromHexError> for AddressError {
+    fn from(err: hex::FromHexError) -> Self {
+        AddressError::DecodeError { source: err }
+    }
+}
 
 /// Parses an Ethereum address string into a 20-byte array.
 ///
@@ -17,19 +66,19 @@ const ADDRESS_SIZE: usize = 20;
 /// Returns an error if:
 /// - The address length is invalid (not 40 hex characters)
 /// - The address contains non-hex characters
-pub fn parse_address(s: &str) -> Result<[u8; ADDRESS_SIZE], Box<dyn Error + Send + Sync>> {
+pub fn parse_address(s: &str) -> Result<[u8; ADDRESS_SIZE], AddressError> {
     let trimmed = s.strip_prefix("0x").unwrap_or(s);
     if trimmed.len() != ADDRESS_SIZE * 2 {
-        return Err(format!(
-            "Invalid address length: '{}' has {} chars, expected {} hex digits (42 chars total with 0x)",
-            s,
-            trimmed.len(),
-            ADDRESS_SIZE * 2
-        )
-        .into());
+        return Err(AddressError::InvalidLength {
+            address: s.to_string(),
+            actual: trimmed.len(),
+            expected: ADDRESS_SIZE * 2,
+        });
     }
     if !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(format!("Invalid address: '{}' contains non-hex characters", s).into());
+        return Err(AddressError::InvalidHex {
+            address: s.to_string(),
+        });
     }
     let bytes = hex::decode(trimmed)?;
     let mut out = [0u8; ADDRESS_SIZE];

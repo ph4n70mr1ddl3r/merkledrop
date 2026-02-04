@@ -154,6 +154,10 @@ fn write_addresses(args: &Args, map_path: &Path) -> Result<usize> {
     let mut writer = BufWriter::new(File::create(map_path)?);
     let mut count = 0usize;
 
+    if !args.manifest.exists() {
+        return Err(format!("manifest file does not exist: {}", args.manifest.display()).into());
+    }
+
     let file = File::open(&args.manifest)
         .map_err(|e| format!("failed to open manifest {}: {}", args.manifest.display(), e))?;
     let reader = BufReader::new(file);
@@ -182,6 +186,10 @@ fn write_addresses_from_file(
     log_interval: usize,
     mut count: usize,
 ) -> Result<usize> {
+    if !path.exists() {
+        return Err(format!("address file does not exist: {}", path.display()).into());
+    }
+
     let file = File::open(path)
         .map_err(|e| format!("failed to open address file {}: {}", path.display(), e))?;
     let reader = BufReader::new(file);
@@ -268,6 +276,10 @@ fn build_layer0_from_files(args: &Args, layer0_path: &Path) -> Result<usize> {
     let mut writer = BufWriter::new(File::create(layer0_path)?);
     let mut count = 0usize;
 
+    if !args.manifest.exists() {
+        return Err(format!("manifest file does not exist: {}", args.manifest.display()).into());
+    }
+
     let file = File::open(&args.manifest)?;
     let reader = BufReader::new(file);
     for line in reader.lines() {
@@ -294,6 +306,10 @@ fn hash_file_into(
     log_interval: usize,
     mut count: usize,
 ) -> Result<usize> {
+    if !path.exists() {
+        return Err(format!("file does not exist: {}", path.display()).into());
+    }
+
     let leaf = hash_file(path)?;
     writer.write_all(&leaf)?;
     count += 1;
@@ -332,11 +348,14 @@ fn hash_file(path: &Path) -> Result<[u8; HASH_SIZE]> {
 
 /// Computes the leaf hash for an index and address pair using Keccak256.
 /// Matches Solidity's keccak256(abi.encode(index, address)).
+/// Uses in-place hashing to avoid heap allocations.
 fn hash_index_address(index: usize, address: &[u8; ADDRESS_SIZE]) -> [u8; HASH_SIZE] {
+    let mut hasher = Keccak256::new();
     let mut buf = [0u8; 64];
     buf[24..32].copy_from_slice(&(index as u64).to_be_bytes());
     buf[32..52].copy_from_slice(address);
-    let digest = Keccak256::digest(buf);
+    hasher.update(buf);
+    let digest = hasher.finalize();
     let mut out = [0u8; HASH_SIZE];
     out.copy_from_slice(&digest);
     out
@@ -373,14 +392,23 @@ fn build_parent_layer(prev: &Path, width: usize, out: &Path) -> Result<usize> {
 /// Hashes a pair of hashes in sorted order using Keccak256.
 /// Matches Solidity's sorted pair hashing for Merkle proof verification.
 fn hash_pair(a: &[u8; HASH_SIZE], b: &[u8; HASH_SIZE]) -> [u8; HASH_SIZE] {
-    let (left, right) = if a <= b { (a, b) } else { (b, a) };
-    let mut hasher = Keccak256::new();
-    hasher.update(left);
-    hasher.update(right);
-    let digest = hasher.finalize();
-    let mut out = [0u8; HASH_SIZE];
-    out.copy_from_slice(&digest);
-    out
+    if a <= b {
+        let mut hasher = Keccak256::new();
+        hasher.update(a);
+        hasher.update(b);
+        let digest = hasher.finalize();
+        let mut out = [0u8; HASH_SIZE];
+        out.copy_from_slice(&digest);
+        out
+    } else {
+        let mut hasher = Keccak256::new();
+        hasher.update(b);
+        hasher.update(a);
+        let digest = hasher.finalize();
+        let mut out = [0u8; HASH_SIZE];
+        out.copy_from_slice(&digest);
+        out
+    }
 }
 
 fn read_first_hash(path: &Path) -> Result<[u8; HASH_SIZE]> {
