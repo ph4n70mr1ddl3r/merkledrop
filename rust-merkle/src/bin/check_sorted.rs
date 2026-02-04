@@ -67,14 +67,9 @@ fn main() -> Result<()> {
             let mut current = [0u8; 20];
             current.copy_from_slice(&buf[start..end]);
             if let Some(p) = prev {
-                match p.cmp(&current) {
-                    Ordering::Greater => {
-                        pb.finish_and_clear();
-                        return Err(
-                            format!("not sorted at index {} -> {}", index - 1, index).into()
-                        );
-                    }
-                    _ => {}
+                if p.cmp(&current) == Ordering::Greater {
+                    pb.finish_and_clear();
+                    return Err(format!("not sorted at index {} -> {}", index - 1, index).into());
                 }
             }
             prev = Some(current);

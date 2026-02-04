@@ -186,7 +186,7 @@ fn write_addresses_from_file(
         let addr = parse_address(addr_str)?;
         writer.write_all(&addr)?;
         count += 1;
-        if log_interval > 0 && count % log_interval == 0 {
+        if log_interval > 0 && count.is_multiple_of(log_interval) {
             println!("Addresses written: {}", count);
         }
     }
@@ -221,7 +221,7 @@ fn build_layer0_from_addresses(
             let leaf = hash_index_address(index, &addr);
             writer.write_all(&leaf)?;
             index += 1;
-            if args.log_interval > 0 && index % args.log_interval == 0 {
+            if args.log_interval > 0 && index.is_multiple_of(args.log_interval) {
                 println!("Hashed {} leaves into layer0", index);
             }
         }
@@ -273,7 +273,7 @@ fn hash_file_into(
     let leaf = hash_file(path)?;
     writer.write_all(&leaf)?;
     count += 1;
-    if log_interval > 0 && count % log_interval == 0 {
+    if log_interval > 0 && count.is_multiple_of(log_interval) {
         println!("Processed {} leaves", count);
     }
     Ok(count)
@@ -322,7 +322,7 @@ fn hash_index_address(index: usize, address: &[u8; 20]) -> [u8; 32] {
     let mut buf = [0u8; 64];
     buf[24..32].copy_from_slice(&(index as u64).to_be_bytes());
     buf[44..64].copy_from_slice(address);
-    let digest = Keccak256::digest(&buf);
+    let digest = Keccak256::digest(buf);
     let mut out = [0u8; 32];
     out.copy_from_slice(&digest);
     out

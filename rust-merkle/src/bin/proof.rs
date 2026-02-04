@@ -83,7 +83,7 @@ fn build_proof(index: usize, meta: &Meta, layers_dir: &Path) -> Result<Vec<Strin
         let sibling_hash = read_hash(layers_dir.join(layer_file), sibling)?;
         proof.push(format!("0x{}", hex::encode(sibling_hash)));
         idx /= 2;
-        width = (width + 1) / 2;
+        width = width.div_ceil(2);
     }
     Ok(proof)
 }
