@@ -2,7 +2,7 @@
 pragma solidity ^0.8.23;
 
 /// @title MerkleAirdropToken
-/// @notice ERC20 token with on-claim minting gated by a Merkle whitelist.
+/// @notice ERC20 token with on-claim minting gated by a Merkle whitelist
 /// @dev Uses keccak256(abi.encode(index, address)) for leaf encoding
 contract MerkleAirdropToken {
     // --- ERC20 storage ---
@@ -51,7 +51,6 @@ contract MerkleAirdropToken {
 
     constructor() {
         owner = msg.sender;
-        _locked = 0;
         emit OwnershipTransferred(address(0), msg.sender);
     }
 
@@ -170,11 +169,11 @@ contract MerkleAirdropToken {
 
     // --- Claim bitmap helpers ---
     function _isClaimed(uint256 index) internal view returns (bool) {
-        uint256 wordIndex = index >> 8; // divide by 256
-        uint256 bitIndex = index & 0xff; // mod 256
+        uint256 wordIndex = index >> 8;
+        uint256 bitIndex = index & 0xff;
         uint256 word = claimedBitMap[wordIndex];
         uint256 mask = 1 << bitIndex;
-        return word & mask == mask;
+        return (word & mask) == mask;
     }
 
     function _setClaimed(uint256 index) internal {
@@ -184,7 +183,8 @@ contract MerkleAirdropToken {
     }
 }
 
-/// @notice Minimal Merkle proof verification library (sorted pair hashing).
+/// @title MerkleProof
+/// @notice Minimal Merkle proof verification library (sorted pair hashing)
 library MerkleProof {
     function verify(bytes32[] calldata proof, bytes32 root, bytes32 leaf) internal pure returns (bool) {
         return processProof(proof, leaf) == root;

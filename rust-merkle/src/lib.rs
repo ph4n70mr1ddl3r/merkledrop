@@ -6,9 +6,8 @@ pub fn parse_address(s: &str) -> Result<[u8; ADDRESS_SIZE], Box<dyn Error + Send
     let trimmed = s.strip_prefix("0x").unwrap_or(s);
     if trimmed.len() != ADDRESS_SIZE * 2 || !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(format!(
-            "Invalid address: {} (must be {} hex chars)",
-            s,
-            ADDRESS_SIZE * 2
+            "Invalid address: '{}' (expected 42 chars: '0x' followed by 40 hex digits)",
+            s
         )
         .into());
     }
