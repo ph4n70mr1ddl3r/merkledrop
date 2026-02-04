@@ -42,15 +42,15 @@ contract MerkleAirdropToken {
     }
 
     modifier nonReentrant() {
-        require(_locked == 1, "reentrant call");
-        _locked = 2;
-        _;
+        require(_locked == 0, "reentrant call");
         _locked = 1;
+        _;
+        _locked = 0;
     }
 
     constructor() {
         owner = msg.sender;
-        _locked = 1;
+        _locked = 0;
         emit OwnershipTransferred(address(0), msg.sender);
     }
 

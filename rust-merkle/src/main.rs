@@ -5,6 +5,8 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
+use rust_merkle::parse_address;
+
 const ADDRESS_SIZE: usize = 20;
 const HASH_SIZE: usize = 32;
 const BUF_SIZE_ADDRESSES: usize = ADDRESS_SIZE * 4096;
@@ -320,22 +322,6 @@ fn hash_file(path: &Path) -> Result<[u8; HASH_SIZE]> {
     let digest = hasher.finalize();
     let mut out = [0u8; HASH_SIZE];
     out.copy_from_slice(&digest);
-    Ok(out)
-}
-
-fn parse_address(s: &str) -> Result<[u8; ADDRESS_SIZE]> {
-    let trimmed = s.strip_prefix("0x").unwrap_or(s).to_lowercase();
-    if trimmed.len() != ADDRESS_SIZE * 2 || !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(format!(
-            "Invalid address: {} (must be {} hex chars)",
-            s,
-            ADDRESS_SIZE * 2
-        )
-        .into());
-    }
-    let bytes = hex::decode(trimmed)?;
-    let mut out = [0u8; ADDRESS_SIZE];
-    out.copy_from_slice(&bytes);
     Ok(out)
 }
 

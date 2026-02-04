@@ -4,6 +4,8 @@ use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
+use rust_merkle::parse_address;
+
 const ADDRESS_SIZE: usize = 20;
 const HASH_SIZE: usize = 32;
 
@@ -92,22 +94,6 @@ fn build_proof(index: usize, meta: &Meta, layers_dir: &Path) -> Result<Vec<Strin
         width = width.div_ceil(2);
     }
     Ok(proof)
-}
-
-fn parse_address(addr: &str) -> Result<[u8; ADDRESS_SIZE]> {
-    let trimmed = addr.strip_prefix("0x").unwrap_or(addr).to_lowercase();
-    if trimmed.len() != ADDRESS_SIZE * 2 || !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(format!(
-            "Invalid address: {} (must be {} hex chars)",
-            addr,
-            ADDRESS_SIZE * 2
-        )
-        .into());
-    }
-    let bytes = hex::decode(trimmed)?;
-    let mut out = [0u8; ADDRESS_SIZE];
-    out.copy_from_slice(&bytes);
-    Ok(out)
 }
 
 fn resolve_address_map(args: &Args, meta: &Meta, layers_dir: &Path) -> Result<PathBuf> {
