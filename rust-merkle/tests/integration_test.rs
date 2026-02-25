@@ -1,4 +1,4 @@
-use merkledrop::lib::{ensure_file_exists, parse_address};
+use rust_merkle::{ensure_file_exists, parse_address};
 use std::fs;
 use std::path::Path;
 

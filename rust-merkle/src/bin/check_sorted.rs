@@ -6,6 +6,7 @@ use std::io::{BufReader, Read};
 use std::path::PathBuf;
 
 use rust_merkle::ADDRESS_SIZE;
+use std::path::Path;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -29,7 +30,13 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     let resolved_addresses =
-        rust_merkle::resolve_path(args.addresses.to_str().unwrap(), Path::new("."))?;
+        match rust_merkle::resolve_path(args.addresses.to_str().unwrap(), Path::new(".")) {
+            Ok(path) => path,
+            Err(e) => {
+                eprintln!("Path resolution failed: {}", e);
+                std::process::exit(1);
+            }
+        };
     if !resolved_addresses.exists() {
         return Err(format!(
             "addresses file does not exist: {}",

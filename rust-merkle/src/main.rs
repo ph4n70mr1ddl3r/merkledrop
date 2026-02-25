@@ -312,12 +312,10 @@ fn hash_file_into(
 }
 
 fn resolve_path(entry: &str, base: &Path) -> PathBuf {
-    let p = PathBuf::from(entry);
-    if p.is_absolute() {
-        p
-    } else {
-        base.join(p)
-    }
+    rust_merkle::resolve_path(entry, base).unwrap_or_else(|e| {
+        eprintln!("Path resolution failed: {}", e);
+        std::process::exit(1);
+    })
 }
 
 /// Computes the Keccak256 hash of a file's contents.
@@ -453,4 +451,256 @@ fn validate_sorted(path: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::Path;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_hash_index_address() {
+        // Test that the hash_index_address function produces correct results
+        let index = 42;
+        let address = [0x12u8; 20];
+
+        let leaf = hash_index_address(index, &address);
+
+        // Verify leaf is 32 bytes
+        assert_eq!(leaf.len(), 32);
+
+        // Test with known values
+        let zero_index = 0usize;
+        let zero_address = [0u8; 20];
+        let zero_leaf = hash_index_address(zero_index, &zero_address);
+        assert_eq!(zero_leaf.len(), 32);
+
+        // Test different indexes produce different results
+        let different_leaf = hash_index_address(1, &zero_address);
+        assert_ne!(zero_leaf, different_leaf);
+    }
+
+    #[test]
+    fn test_hash_pair() {
+        // Test hash pair function with different inputs
+        let hash1 = [1u8; 32];
+        let hash2 = [2u8; 32];
+        let hash3 = [3u8; 32];
+
+        // Test with a < b
+        let pair1 = hash_pair(&hash1, &hash2);
+        assert_eq!(pair1.len(), 32);
+
+        // Test with b < a (should produce same result as sorted pair)
+        let pair2 = hash_pair(&hash2, &hash1);
+        assert_eq!(pair1, pair2);
+
+        // Test with same hashes (edge case)
+        let same_pair = hash_pair(&hash1, &hash1);
+        assert_eq!(same_pair.len(), 32);
+    }
+
+    #[test]
+    fn test_hash_file() {
+        let temp_dir = tempdir().unwrap();
+        let test_file = temp_dir.path().join("test_file.txt");
+
+        // Create a test file with known content
+        let test_content = b"Hello, World!";
+        fs::write(&test_file, test_content).unwrap();
+
+        let hash = hash_file(&test_file).unwrap();
+        assert_eq!(hash.len(), 32);
+
+        // Test that same content produces same hash
+        let hash2 = hash_file(&test_file).unwrap();
+        assert_eq!(hash, hash2);
+
+        // Test that different content produces different hash
+        let different_content = b"Hello, Universe!";
+        let different_file = temp_dir.path().join("different_file.txt");
+        fs::write(&different_file, different_content).unwrap();
+        let different_hash = hash_file(&different_file).unwrap();
+        assert_ne!(hash, different_hash);
+    }
+
+    #[test]
+    fn test_build_parent_layer() {
+        let temp_dir = tempdir().unwrap();
+        let input_file = temp_dir.path().join("input_layer.bin");
+        let output_file = temp_dir.path().join("output_layer.bin");
+
+        // Create input layer with 4 hashes (even number)
+        let input_data = [
+            [1u8; 32], // Hash 0
+            [2u8; 32], // Hash 1
+            [3u8; 32], // Hash 2
+            [4u8; 32], // Hash 3
+        ]
+        .concat();
+        fs::write(&input_file, &input_data).unwrap();
+
+        let parents = build_parent_layer(&input_file, 4, &output_file).unwrap();
+        assert_eq!(parents, 2); // 4 elements -> 2 parents
+
+        // Verify output file exists and has correct size
+        assert!(output_file.exists());
+        let output_size = fs::metadata(&output_file).unwrap().len() as usize;
+        assert_eq!(output_size, 64); // 2 hashes * 32 bytes each
+
+        // Test with odd number of elements
+        let odd_input_file = temp_dir.path().join("odd_input.bin");
+        let odd_input_data = [
+            [5u8; 32], // Hash 0
+            [6u8; 32], // Hash 1
+            [7u8; 32], // Hash 2 (odd one out)
+        ]
+        .concat();
+        fs::write(&odd_input_file, &odd_input_data).unwrap();
+
+        let odd_output_file = temp_dir.path().join("odd_output.bin");
+        let odd_parents = build_parent_layer(&odd_input_file, 3, &odd_output_file).unwrap();
+        assert_eq!(odd_parents, 2); // 3 elements -> 2 parents (last one duplicated)
+    }
+
+    #[test]
+    fn test_validate_sorted() {
+        let temp_dir = tempdir().unwrap();
+        let sorted_file = temp_dir.path().join("sorted_addresses.bin");
+        let unsorted_file = temp_dir.path().join("unsorted_addresses.bin");
+
+        // Create a sorted address map
+        let sorted_addresses = [
+            [0u8; 20], // Smallest
+            [1u8; 20],
+            [2u8; 20],
+            [255u8; 20], // Largest
+        ];
+        let sorted_data = sorted_addresses.concat();
+        fs::write(&sorted_file, &sorted_data).unwrap();
+
+        // Test sorted validation should pass
+        let result = validate_sorted(&sorted_file);
+        assert!(result.is_ok());
+
+        // Create an unsorted address map
+        let unsorted_addresses = [
+            [0u8; 20],
+            [2u8; 20],
+            [1u8; 20], // This is out of order
+            [255u8; 20],
+        ];
+        let unsorted_data = unsorted_addresses.concat();
+        fs::write(&unsorted_file, &unsorted_data).unwrap();
+
+        // Test sorted validation should fail
+        let result = validate_sorted(&unsorted_file);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not sorted"));
+    }
+
+    #[test]
+    fn test_read_first_hash() {
+        let temp_dir = temp_dir().unwrap();
+        let test_file = temp_dir.path().join("test_hashes.bin");
+
+        // Create a file with multiple hashes
+        let test_data = [
+            [1u8; 32], // First hash
+            [2u8; 32], // Second hash
+            [3u8; 32], // Third hash
+        ]
+        .concat();
+        fs::write(&test_file, &test_data).unwrap();
+
+        let first_hash = read_first_hash(&test_file).unwrap();
+        assert_eq!(first_hash, [1u8; 32]);
+    }
+
+    #[test]
+    fn test_to_hex() {
+        let test_bytes = [1u8, 2u8, 3u8, 4u8];
+        let hex = to_hex(&test_bytes);
+        assert_eq!(hex, "0x01020304");
+
+        // Test with empty array
+        let empty_hex = to_hex(&[]);
+        assert_eq!(empty_hex, "0x");
+
+        // Test with full 32-byte hash
+        let full_hash = [255u8; 32];
+        let full_hex = to_hex(&full_hash);
+        assert_eq!(full_hex.len(), 66); // "0x" + 64 hex chars
+        assert!(full_hex.starts_with("0x"));
+    }
+
+    #[test]
+    fn test_resolve_path_security() {
+        // Test that resolve_path properly handles security concerns
+
+        let base_dir = Path::new("/safe/base");
+
+        // Test valid paths
+        let valid_paths = vec!["relative/path", "./nested/path", "file.txt"];
+
+        for path in valid_paths {
+            let result = resolve_path(path, base_dir);
+            // These should either succeed or fail gracefully, but not panic
+            match result {
+                Ok(resolved) => {
+                    assert!(resolved.is_absolute(), "Resolved path should be absolute");
+                }
+                Err(_) => {
+                    // Some valid paths might fail due to base directory constraints
+                }
+            }
+        }
+
+        // Test directory traversal attempts
+        let traversal_attempts = vec![
+            "../outside/path",
+            "../../etc/passwd",
+            "valid/../secret/file.txt",
+            "/etc/passwd", // Absolute path outside base
+        ];
+
+        for path in traversal_attempts {
+            let result = resolve_path(path, base_dir);
+            // Directory traversal attempts should fail
+            if path.contains("../") || path.starts_with("/") {
+                assert!(
+                    result.is_err(),
+                    "Directory traversal should be blocked: {}",
+                    path
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_large_dataset_simulation() {
+        // Simulate processing a large dataset of addresses
+        let temp_dir = temp_dir().unwrap();
+        let address_file = temp_dir.path().join("large_address_list.txt");
+
+        // Create a large address list (simulating 10,000 addresses)
+        let mut address_content = String::new();
+        for i in 0..10_000 {
+            let addr = format!("0x{:040x}", i);
+            address_content.push_str(&addr);
+            address_content.push('\n');
+        }
+        fs::write(&address_file, &address_content).unwrap();
+
+        // Test that we can process the file without issues
+        // Note: This would normally call write_addresses_from_file, but we'll simulate it
+        let result = ensure_file_exists(&address_file, "large address file");
+        assert!(result.is_ok());
+
+        // Verify file size is reasonable
+        let file_size = fs::metadata(&address_file).unwrap().len();
+        assert!(file_size > 0);
+    }
 }

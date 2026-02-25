@@ -270,4 +270,137 @@ mod tests {
         assert_eq!(sibling_index(2, 3), 2);
         assert_eq!(sibling_index(4, 5), 4);
     }
+
+    #[test]
+    fn test_read_hash_valid() {
+        let temp_dir = tempdir().unwrap();
+        let test_file = temp_dir.path().join("test_address_map.bin");
+
+        // Create a sorted address map
+        let test_addresses = [
+            [0u8; 20], // Address 0 (all zeros)
+            [1u8; 20], // Address 1
+            [2u8; 20], // Address 2
+        ];
+        let test_data = test_addresses.concat();
+        fs::write(&test_file, &test_data).unwrap();
+
+        // Test finding existing addresses
+        assert_eq!(find_index_from_map(&[0u8; 20], &test_file).unwrap(), 0);
+        assert_eq!(find_index_from_map(&[1u8; 20], &test_file).unwrap(), 1);
+        assert_eq!(find_index_from_map(&[2u8; 20], &test_file).unwrap(), 2);
+    }
+
+    #[test]
+    fn test_find_index_from_map_not_found() {
+        let temp_dir = tempdir().unwrap();
+        let test_file = temp_dir.path().join("test_address_map.bin");
+
+        // Create a test address map
+        let test_data = [[1u8; 20], [2u8; 20]].concat();
+        fs::write(&test_file, &test_data).unwrap();
+
+        // Test finding non-existent address
+        let result = find_index_from_map(&[0u8; 20], &test_file);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_find_index_from_map_empty() {
+        let temp_dir = tempdir().unwrap();
+        let test_file = temp_dir.path().join("empty_address_map.bin");
+
+        // Create empty address map
+        fs::write(&test_file, []).unwrap();
+
+        let result = find_index_from_map(&[1u8; 20], &test_file);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("empty"));
+    }
+
+    #[test]
+    fn test_resolve_address_map_from_meta() {
+        let temp_dir = tempdir().unwrap();
+        let meta_file = temp_dir.path().join("merkle-meta.json");
+        let map_file = temp_dir.path().join("addresses.bin");
+
+        // Create address map file
+        fs::write(&map_file, [1u8; 20]).unwrap();
+
+        // Create meta file with address map reference
+        let meta_content = r#"{
+            "root": "0x1234567890abcdef1234567890abcdef12345678",
+            "leafCount": 1,
+            "layerFiles": ["layer00.bin"],
+            "addressMap": "addresses.bin"
+        }"#;
+        fs::write(&meta_file, meta_content).unwrap();
+
+        // Test resolving address map from meta
+        let args = Args {
+            meta: meta_file.clone(),
+            layers_dir: None,
+            address_map: None,
+            address: "0x1234567890123456789012345678901234567890".to_string(),
+        };
+
+        let meta = read_meta(&meta_file).unwrap();
+        let resolved = resolve_address_map(&args, &meta, temp_dir.path()).unwrap();
+
+        assert_eq!(resolved, map_file);
+    }
+
+    #[test]
+    fn test_build_proof_edge_cases() {
+        let temp_dir = temp_dir().unwrap();
+
+        // Test with insufficient layers (should fail)
+        let meta = Meta {
+            root: "0x1234567890abcdef1234567890abcdef12345678".to_string(),
+            leaf_count: 2,
+            layer_files: vec!["layer00.bin".to_string()], // Only one layer
+            address_map: None,
+        };
+
+        let result = build_proof(0, &meta, temp_dir.path());
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("insufficient Merkle tree layers"));
+
+        // Test with enough layers
+        let layer_file = temp_dir.path().join("layer00.bin");
+        fs::write(&layer_file, [[1u8; 32], [2u8; 32]].concat()).unwrap();
+
+        let meta_enough_layers = Meta {
+            root: "0x1234567890abcdef1234567890abcdef12345678".to_string(),
+            leaf_count: 2,
+            layer_files: vec!["layer00.bin".to_string(), "layer01.bin".to_string()],
+            address_map: None,
+        };
+
+        // This should fail because layer01.bin doesn't exist, but that's expected
+        let result = build_proof(0, &meta_enough_layers, temp_dir.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_proof_length_validation() {
+        // Test that proofs longer than 32 elements are rejected
+        let temp_dir = tempdir().unwrap();
+
+        // Create a meta that would generate a very long proof
+        let meta = Meta {
+            root: "0x1234567890abcdef1234567890abcdef12345678".to_string(),
+            leaf_count: 1 << 33, // Would require 33 layers
+            layer_files: (0..33).map(|i| format!("layer{:02}.bin", i)).collect(),
+            address_map: None,
+        };
+
+        let result = build_proof(0, &meta, temp_dir.path());
+        // Should fail due to proof depth exceeding maximum allowed
+        assert!(result.is_err());
+    }
 }
