@@ -67,7 +67,7 @@ fn main() -> Result<()> {
 
     // Validate that index is within leaf count
     if index >= meta.leaf_count {
-        return Err(format!("index {} exceeds leaf count {}", index, meta.leaf_count).into());
+        return Err(format!("index validation failed: address index {} is out of bounds for the Merkle tree which has only {} leaves. This indicates data corruption or an invalid address.", index, meta.leaf_count).into());
     }
 
     let proof = build_proof(index, &meta, &layers_dir)?;
@@ -100,7 +100,7 @@ fn read_meta(path: &Path) -> Result<Meta> {
 /// Builds a Merkle proof for the given leaf index by traversing the tree layers.
 fn build_proof(index: usize, meta: &Meta, layers_dir: &Path) -> Result<Vec<String>> {
     if meta.layer_files.len() < 2 {
-        return Err("insufficient layers for proof generation".into());
+        return Err("proof generation failed: insufficient Merkle tree layers found. At least 2 layers are required to generate a proof. The tree may be too small or corrupted.".into());
     }
 
     let mut idx = index;
@@ -115,7 +115,7 @@ fn build_proof(index: usize, meta: &Meta, layers_dir: &Path) -> Result<Vec<Strin
         // Validate layer file exists
         let layer_path = layers_dir.join(layer_file);
         if !layer_path.exists() {
-            return Err(format!("layer file not found: {}", layer_path.display()).into());
+            return Err(format!("proof generation failed: required layer file not found at {}. The Merkle tree data may be incomplete or corrupted.", layer_path.display()).into());
         }
 
         let sibling = sibling_index(idx, width);
@@ -151,7 +151,7 @@ fn find_index_from_map(target: &[u8; ADDRESS_SIZE], path: &Path) -> Result<usize
     let len = file.metadata()?.len();
     if len % ADDRESS_SIZE as u64 != 0 {
         return Err(format!(
-            "address map length {} is not a multiple of {} bytes",
+            "address map validation failed: file size {} bytes is not a multiple of the expected {} bytes per address. File may be corrupted.",
             len, ADDRESS_SIZE
         )
         .into());
@@ -179,7 +179,7 @@ fn find_index_from_map(target: &[u8; ADDRESS_SIZE], path: &Path) -> Result<usize
     }
 
     Err(format!(
-        "address 0x{} not found in address map {} (checked {} addresses, file size {} bytes)",
+        "address lookup failed: address 0x{} not found in the sorted address map {}. The address may not be eligible for the airdrop, or the address map file may be corrupted. Checked {} addresses across {} bytes.",
         hex::encode(target),
         path.display(),
         count,

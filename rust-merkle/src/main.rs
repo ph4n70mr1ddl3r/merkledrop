@@ -237,7 +237,7 @@ fn build_layer0_from_addresses(
         }
         if n % ADDRESS_SIZE != 0 {
             return Err(format!(
-                "address map read not aligned to {} bytes (read {} bytes at index {}), file may be corrupted: {}",
+                "address map file is corrupted or invalid: expected {} byte alignment but read {} bytes at index {} in file: {}",
                 ADDRESS_SIZE, n, index, address_map.display()
             )
             .into());
@@ -260,7 +260,7 @@ fn build_layer0_from_addresses(
     writer.flush()?;
     if index != leaf_count {
         return Err(format!(
-            "leaf count mismatch: expected {}, wrote {}. This may indicate a mismatch between the address count and the actual data.",
+            "critical data integrity error: leaf count mismatch. Expected {} addresses based on count, but found {} addresses in file. The address map file may be corrupted or incorrect.",
             leaf_count, index
         )
         .into());
@@ -300,7 +300,7 @@ fn hash_file_into(
     log_interval: usize,
     mut count: usize,
 ) -> Result<usize> {
-    ensure_file_exists(path, "file")?;
+    ensure_file_exists(path, "input file")?;
 
     let leaf = hash_file(path)?;
     writer.write_all(&leaf)?;
@@ -426,7 +426,7 @@ fn validate_sorted(path: &Path) -> Result<()> {
         }
         if n % ADDRESS_SIZE != 0 {
             return Err(format!(
-                "address map not aligned to {} bytes (read {} bytes at index {}), file may be corrupted: {}",
+                "address map validation failed: file corruption detected. Expected {} byte alignment but found {} bytes at offset {} in file: {}",
                 ADDRESS_SIZE, n, index, path.display()
             ).into());
         }

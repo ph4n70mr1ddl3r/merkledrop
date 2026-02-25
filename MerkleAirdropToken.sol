@@ -185,10 +185,6 @@ contract MerkleAirdropToken {
     /// @param index The index of the address in the Merkle tree
     /// @param account The address claiming tokens
     /// @param merkleProof The Merkle proof for the address
-    /// @notice Claim tokens for an address using a Merkle proof
-    /// @param index The index of the address in the Merkle tree
-    /// @param account The address claiming tokens
-    /// @param merkleProof The Merkle proof for the address
     function claim(uint256 index, address account, bytes32[] calldata merkleProof) external nonReentrant {
         if (paused) revert ContractPaused();
         if (airdropEnded) revert AirdropAlreadyEnded();
@@ -216,10 +212,6 @@ contract MerkleAirdropToken {
     /// @param accounts The array of addresses claiming tokens
     /// @param proofs The array of Merkle proofs for the addresses
     /// @return bool True if successful
-    /// @notice Batch claim tokens for multiple addresses using Merkle proofs
-    /// @param indexes The array of indexes for the addresses
-    /// @param accounts The array of addresses claiming tokens
-    /// @param proofs The array of Merkle proofs for the addresses
     function batchClaim(
         uint256[] calldata indexes,
         address[] calldata accounts,
@@ -231,6 +223,7 @@ contract MerkleAirdropToken {
         if (indexes.length == 0 || indexes.length > 50) revert InvalidBatchSize();
         if (airdropEnded) revert AirdropAlreadyEnded();
 
+        // Pre-validation: check all inputs before processing to avoid partial processing
         for (uint256 i = 0; i < indexes.length; ) {
             address account = accounts[i];
             uint256 index = indexes[i];
@@ -239,10 +232,21 @@ contract MerkleAirdropToken {
             if (account == address(0)) revert InvalidAccountAddress();
             if (_isClaimed(index)) revert AddressAlreadyClaimed();
             if (proof.length > MAX_PROOF_LENGTH) revert MerkleProofTooLong();
-
+            
+            // Pre-compute leaf hash to avoid recomputation
             bytes32 leaf = keccak256(abi.encode(index, account));
             if (!MerkleProof.verify(proof, merkleRoot, leaf)) revert InvalidMerkleProof();
+            
+            unchecked {
+                ++i;
+            }
+        }
 
+        // Process all claims (no more validation needed)
+        for (uint256 i = 0; i < indexes.length; ) {
+            address account = accounts[i];
+            uint256 index = indexes[i];
+            
             _setClaimed(index);
             _mint(account, claimAmount);
             emit Claimed(index, account, claimAmount);
@@ -253,8 +257,6 @@ contract MerkleAirdropToken {
         }
     }
 
-    /// @notice End the airdrop, preventing further claims
-    /// @dev Only callable by the owner
     /// @notice End the airdrop, preventing further claims
     /// @dev Only callable by the owner
     function endAirdrop() external onlyOwner {
@@ -283,10 +285,6 @@ contract MerkleAirdropToken {
     /// @param token The token address to recover
     /// @param to The address to send recovered tokens to
     /// @param amount The amount to recover
-    /// @notice Recover ERC20 tokens accidentally sent to the contract
-    /// @param token The token address to recover
-    /// @param to The address to send recovered tokens to
-    /// @param amount The amount to recover
     function recoverTokens(address token, address to, uint256 amount) external onlyOwner {
         if (token == address(0)) revert InvalidAccountAddress();
         if (to == address(0)) revert CannotTransferToZeroAddress();
@@ -299,9 +297,6 @@ contract MerkleAirdropToken {
         emit TokensRecovered(token, to, amount);
     }
 
-    /// @notice Recover ETH accidentally sent to the contract
-    /// @param to The address to send recovered ETH to
-    /// @param amount The amount to recover
     /// @notice Recover ETH accidentally sent to the contract
     /// @param to The address to send recovered ETH to
     /// @param amount The amount to recover
@@ -319,9 +314,6 @@ contract MerkleAirdropToken {
     /// @notice Initiate ownership transfer to a new owner
     /// @param newOwner The address to transfer ownership to
     /// @dev The new owner must call acceptOwnership to complete the transfer
-    /// @notice Initiate ownership transfer to a new owner
-    /// @param newOwner The address to transfer ownership to
-    /// @dev The new owner must call acceptOwnership to complete the transfer
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert InvalidAccountAddress();
         if (newOwner == owner) revert AlreadyOwner();
@@ -333,8 +325,6 @@ contract MerkleAirdropToken {
 
     /// @notice Accept pending ownership transfer
     /// @dev Only callable by the pending owner
-    /// @notice Accept pending ownership transfer
-    /// @dev Only callable by the pending owner
     function acceptOwnership() external {
         if (msg.sender != pendingOwner) revert CallerIsNotPendingOwner();
         
@@ -344,8 +334,6 @@ contract MerkleAirdropToken {
         emit OwnershipTransferred(previousOwner, msg.sender);
     }
 
-    /// @notice Cancel a pending ownership transfer
-    /// @dev Only callable by the owner
     /// @notice Cancel a pending ownership transfer
     /// @dev Only callable by the owner
     function cancelOwnershipTransfer() external onlyOwner {
@@ -361,10 +349,10 @@ contract MerkleAirdropToken {
         uint256 fromBal = _balances[from];
         if (fromBal < value) revert InsufficientBalance();
         
-        unchecked {
-            _balances[from] = fromBal - value;
-            _balances[to] += value;
-        }
+        uint256 newFromBalance = fromBal - value;
+        uint256 newToBalance = _balances[to] + value;
+        _balances[from] = newFromBalance;
+        _balances[to] = newToBalance;
         emit Transfer(from, to, value);
     }
 
@@ -378,10 +366,10 @@ contract MerkleAirdropToken {
         if (to == address(0)) revert CannotTransferToZeroAddress();
         if (_totalSupply > maxSupply - value) revert ExceedsMaxSupply();
         
-        unchecked {
-            _totalSupply += value;
-            _balances[to] += value;
-        }
+        uint256 newTotalSupply = _totalSupply + value;
+        uint256 newBalance = _balances[to] + value;
+        _totalSupply = newTotalSupply;
+        _balances[to] = newBalance;
         emit Transfer(address(0), to, value);
     }
 
