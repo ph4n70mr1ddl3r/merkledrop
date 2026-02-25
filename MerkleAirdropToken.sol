@@ -1,10 +1,39 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 /// @title MerkleAirdropToken
 /// @notice ERC20 token with on-claim minting gated by a Merkle whitelist
 /// @dev Uses keccak256(abi.encode(index, address)) for leaf encoding
 contract MerkleAirdropToken {
+    // --- Custom Error Types ---
+    error InvalidClaimAmount();
+    error InvalidMerkleRoot();
+    error InvalidMaxSupply();
+    error NotOwner();
+    error ReentrantCall();
+    error AirdropAlreadyEnded();
+    error InvalidAccountAddress();
+    error AddressAlreadyClaimed();
+    error MerkleProofTooLong();
+    error InvalidMerkleProof();
+    error ArrayLengthMismatch();
+    error InvalidBatchSize();
+    error CannotTransferToZeroAddress();
+    error InsufficientBalance();
+    error AllowanceExceeded();
+    error CannotRecoverOwnToken();
+    error InsufficientTokenBalance();
+    error TokenTransferFailed();
+    error InsufficientETHBalance();
+    error ETHTransferFailed();
+    error AlreadyOwner();
+    error OwnershipTransferAlreadyPending();
+    error CallerIsNotPendingOwner();
+    error NoPendingTransfer();
+    error ExceedsMaxSupply();
+    error ContractPaused();
     // --- ERC20 storage ---
     string private constant _NAME = "Merkle Airdrop Token";
     string private constant _SYMBOL = "MAT";
@@ -27,6 +56,7 @@ contract MerkleAirdropToken {
     uint256 public immutable claimAmount;
     uint256 public immutable maxSupply;
     bool public airdropEnded;
+    bool public paused;
     
     // --- Constants for gas optimization and safety ---
     uint256 private constant MAX_PROOF_LENGTH = 32;
@@ -45,15 +75,17 @@ contract MerkleAirdropToken {
     event AirdropEnded(address indexed endedBy, uint256 timestamp);
     event TokensRecovered(address indexed token, address indexed to, uint256 amount);
     event ETHRecovered(address indexed to, uint256 amount);
+    event Paused(address indexed account, uint256 timestamp);
+    event Unpaused(address indexed account, uint256 timestamp);
 
     // --- Modifiers ---
     modifier onlyOwner() {
-        require(msg.sender == owner, "not owner");
+        if (msg.sender != owner) revert NotOwner();
         _;
     }
 
     modifier nonReentrant() {
-        require(_locked == _NOT_ENTERED, "reentrant call");
+        if (_locked != _NOT_ENTERED) revert ReentrantCall();
         _locked = _ENTERED;
         _;
         _locked = _NOT_ENTERED;
@@ -63,9 +95,9 @@ contract MerkleAirdropToken {
     /// @param _claimAmount The amount of tokens to claim per address
     /// @param _maxSupply Maximum total supply (typically leafCount * claimAmount)
     constructor(bytes32 _merkleRoot, uint256 _claimAmount, uint256 _maxSupply) {
-        require(_claimAmount > 0, "claim amount must be > 0");
-        require(_merkleRoot != bytes32(0), "invalid merkle root");
-        require(_maxSupply > 0, "max supply must be > 0");
+        if (_claimAmount == 0) revert InvalidClaimAmount();
+        if (_merkleRoot == bytes32(0)) revert InvalidMerkleRoot();
+        if (_maxSupply == 0) revert InvalidMaxSupply();
         owner = msg.sender;
         _locked = _NOT_ENTERED;
         merkleRoot = _merkleRoot;
@@ -123,7 +155,7 @@ contract MerkleAirdropToken {
     /// @return bool True if successful
     function transferFrom(address from, address to, uint256 value) external returns (bool) {
         uint256 allowed = _allowances[from][msg.sender];
-        require(allowed >= value, "allowance exceeded");
+        if (allowed < value) revert AllowanceExceeded();
         if (allowed != type(uint256).max) {
             _allowances[from][msg.sender] = allowed - value;
         }
@@ -153,14 +185,19 @@ contract MerkleAirdropToken {
     /// @param index The index of the address in the Merkle tree
     /// @param account The address claiming tokens
     /// @param merkleProof The Merkle proof for the address
+    /// @notice Claim tokens for an address using a Merkle proof
+    /// @param index The index of the address in the Merkle tree
+    /// @param account The address claiming tokens
+    /// @param merkleProof The Merkle proof for the address
     function claim(uint256 index, address account, bytes32[] calldata merkleProof) external nonReentrant {
-        require(!airdropEnded, "airdrop has ended");
-        require(account != address(0), "invalid account address");
-        require(!_isClaimed(index), "address already claimed");
-        require(merkleProof.length <= MAX_PROOF_LENGTH, "merkle proof exceeds maximum allowed length");
+        if (paused) revert ContractPaused();
+        if (airdropEnded) revert AirdropAlreadyEnded();
+        if (account == address(0)) revert InvalidAccountAddress();
+        if (_isClaimed(index)) revert AddressAlreadyClaimed();
+        if (merkleProof.length > MAX_PROOF_LENGTH) revert MerkleProofTooLong();
 
         bytes32 leaf = keccak256(abi.encode(index, account));
-        require(MerkleProof.verify(merkleProof, merkleRoot, leaf), "invalid merkle proof");
+        if (!MerkleProof.verify(merkleProof, merkleRoot, leaf)) revert InvalidMerkleProof();
 
         _setClaimed(index);
         _mint(account, claimAmount);
@@ -179,27 +216,32 @@ contract MerkleAirdropToken {
     /// @param accounts The array of addresses claiming tokens
     /// @param proofs The array of Merkle proofs for the addresses
     /// @return bool True if successful
+    /// @notice Batch claim tokens for multiple addresses using Merkle proofs
+    /// @param indexes The array of indexes for the addresses
+    /// @param accounts The array of addresses claiming tokens
+    /// @param proofs The array of Merkle proofs for the addresses
     function batchClaim(
         uint256[] calldata indexes,
         address[] calldata accounts,
         bytes32[][] calldata proofs
     ) external nonReentrant {
-        require(indexes.length == accounts.length, "array length mismatch");
-        require(indexes.length == proofs.length, "proof array length mismatch");
-        require(indexes.length > 0 && indexes.length <= 50, "batch size must be between 1 and 50");
-        require(!airdropEnded, "airdrop has ended");
+        if (paused) revert ContractPaused();
+        if (indexes.length != accounts.length) revert ArrayLengthMismatch();
+        if (indexes.length != proofs.length) revert ArrayLengthMismatch();
+        if (indexes.length == 0 || indexes.length > 50) revert InvalidBatchSize();
+        if (airdropEnded) revert AirdropAlreadyEnded();
 
         for (uint256 i = 0; i < indexes.length; ) {
             address account = accounts[i];
             uint256 index = indexes[i];
             bytes32[] calldata proof = proofs[i];
             
-            require(account != address(0), "invalid account address");
-            require(!_isClaimed(index), "address already claimed");
-            require(proof.length <= MAX_PROOF_LENGTH, "proof too long");
+            if (account == address(0)) revert InvalidAccountAddress();
+            if (_isClaimed(index)) revert AddressAlreadyClaimed();
+            if (proof.length > MAX_PROOF_LENGTH) revert MerkleProofTooLong();
 
             bytes32 leaf = keccak256(abi.encode(index, account));
-            require(MerkleProof.verify(proof, merkleRoot, leaf), "invalid merkle proof");
+            if (!MerkleProof.verify(proof, merkleRoot, leaf)) revert InvalidMerkleProof();
 
             _setClaimed(index);
             _mint(account, claimAmount);
@@ -213,34 +255,63 @@ contract MerkleAirdropToken {
 
     /// @notice End the airdrop, preventing further claims
     /// @dev Only callable by the owner
+    /// @notice End the airdrop, preventing further claims
+    /// @dev Only callable by the owner
     function endAirdrop() external onlyOwner {
-        require(!airdropEnded, "already ended");
+        if (airdropEnded) revert AirdropAlreadyEnded();
         airdropEnded = true;
         emit AirdropEnded(msg.sender, block.timestamp);
+    }
+
+    /// @notice Pause the airdrop, preventing all claims and transfers
+    /// @dev Only callable by the owner
+    function pause() external onlyOwner {
+        if (paused) revert ContractPaused();
+        paused = true;
+        emit Paused(msg.sender, block.timestamp);
+    }
+
+    /// @notice Unpause the airdrop, allowing claims and transfers to resume
+    /// @dev Only callable by the owner
+    function unpause() external onlyOwner {
+        if (!paused) revert ContractPaused();
+        paused = false;
+        emit Unpaused(msg.sender, block.timestamp);
     }
 
     /// @notice Recover ERC20 tokens accidentally sent to the contract
     /// @param token The token address to recover
     /// @param to The address to send recovered tokens to
     /// @param amount The amount to recover
+    /// @notice Recover ERC20 tokens accidentally sent to the contract
+    /// @param token The token address to recover
+    /// @param to The address to send recovered tokens to
+    /// @param amount The amount to recover
     function recoverTokens(address token, address to, uint256 amount) external onlyOwner {
-        require(token != address(0), "invalid token address");
-        require(to != address(0), "cannot recover to zero address");
-        require(token != address(this), "cannot recover own token");
-        require(IERC20(token).balanceOf(address(this)) >= amount, "insufficient balance");
+        if (token == address(0)) revert InvalidAccountAddress();
+        if (to == address(0)) revert CannotTransferToZeroAddress();
+        if (token == address(this)) revert CannotRecoverOwnToken();
+        if (IERC20(token).balanceOf(address(this)) < amount) revert InsufficientTokenBalance();
+        
         bool success = IERC20(token).transfer(to, amount);
-        require(success, "token transfer failed");
+        if (!success) revert TokenTransferFailed();
+        
         emit TokensRecovered(token, to, amount);
     }
 
     /// @notice Recover ETH accidentally sent to the contract
     /// @param to The address to send recovered ETH to
     /// @param amount The amount to recover
+    /// @notice Recover ETH accidentally sent to the contract
+    /// @param to The address to send recovered ETH to
+    /// @param amount The amount to recover
     function recoverETH(address payable to, uint256 amount) external onlyOwner {
-        require(to != address(0), "cannot recover to zero address");
-        require(address(this).balance >= amount, "insufficient ETH balance");
+        if (to == address(0)) revert CannotTransferToZeroAddress();
+        if (address(this).balance < amount) revert InsufficientETHBalance();
+        
         (bool success, ) = to.call{value: amount, gas: 2300}("");
-        require(success, "ETH transfer failed");
+        if (!success) revert ETHTransferFailed();
+        
         emit ETHRecovered(to, amount);
     }
 
@@ -248,18 +319,25 @@ contract MerkleAirdropToken {
     /// @notice Initiate ownership transfer to a new owner
     /// @param newOwner The address to transfer ownership to
     /// @dev The new owner must call acceptOwnership to complete the transfer
+    /// @notice Initiate ownership transfer to a new owner
+    /// @param newOwner The address to transfer ownership to
+    /// @dev The new owner must call acceptOwnership to complete the transfer
     function transferOwnership(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "cannot transfer to zero address");
-        require(newOwner != owner, "already owner");
-        require(pendingOwner == address(0), "ownership transfer already pending");
+        if (newOwner == address(0)) revert InvalidAccountAddress();
+        if (newOwner == owner) revert AlreadyOwner();
+        if (pendingOwner != address(0)) revert OwnershipTransferAlreadyPending();
+        
         pendingOwner = newOwner;
         emit OwnershipTransferInitiated(owner, newOwner);
     }
 
     /// @notice Accept pending ownership transfer
     /// @dev Only callable by the pending owner
+    /// @notice Accept pending ownership transfer
+    /// @dev Only callable by the pending owner
     function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "caller is not pending owner");
+        if (msg.sender != pendingOwner) revert CallerIsNotPendingOwner();
+        
         address previousOwner = owner;
         owner = msg.sender;
         pendingOwner = address(0);
@@ -268,17 +346,21 @@ contract MerkleAirdropToken {
 
     /// @notice Cancel a pending ownership transfer
     /// @dev Only callable by the owner
+    /// @notice Cancel a pending ownership transfer
+    /// @dev Only callable by the owner
     function cancelOwnershipTransfer() external onlyOwner {
-        require(pendingOwner != address(0), "no pending transfer");
+        if (pendingOwner == address(0)) revert NoPendingTransfer();
+        
         pendingOwner = address(0);
         emit OwnershipTransferInitiated(owner, address(0));
     }
 
     // --- Internal ERC20 helpers ---
     function _transfer(address from, address to, uint256 value) internal {
-        require(to != address(0), "transfer to zero");
+        if (to == address(0)) revert CannotTransferToZeroAddress();
         uint256 fromBal = _balances[from];
-        require(fromBal >= value, "insufficient balance");
+        if (fromBal < value) revert InsufficientBalance();
+        
         unchecked {
             _balances[from] = fromBal - value;
             _balances[to] += value;
@@ -287,14 +369,15 @@ contract MerkleAirdropToken {
     }
 
     function _approve(address owner, address spender, uint256 value) internal {
-        require(spender != address(0), "approve to zero");
+        if (spender == address(0)) revert CannotTransferToZeroAddress();
         _allowances[owner][spender] = value;
         emit Approval(owner, spender, value);
     }
 
     function _mint(address to, uint256 value) internal {
-        require(to != address(0), "mint to zero");
-        require(_totalSupply <= maxSupply - value, "exceeds max supply");
+        if (to == address(0)) revert CannotTransferToZeroAddress();
+        if (_totalSupply > maxSupply - value) revert ExceedsMaxSupply();
+        
         unchecked {
             _totalSupply += value;
             _balances[to] += value;
@@ -303,20 +386,34 @@ contract MerkleAirdropToken {
     }
 
     // --- Claim bitmap helpers ---
+    /// @notice Check if an index has been claimed using bit manipulation
+    /// @dev Each uint256 word stores 256 bits, representing claim status for 256 addresses
+    ///      bitIndex = index % 256, wordIndex = index / 256
     /// @param index The leaf index in the Merkle tree
     /// @return bool True if the index has been claimed
     function _isClaimed(uint256 index) internal view returns (bool) {
+        // Calculate word index (each word holds 256 bits = 2^8)
         uint256 wordIndex = index >> 8;
+        // Calculate bit index within the word
         uint256 bitIndex = index & 0xff;
+        // Get the word containing the bit
         uint256 word = claimedBitMap[wordIndex];
+        // Create mask for the specific bit
         uint256 mask = 1 << bitIndex;
+        // Check if the bit is set
         return (word & mask) == mask;
     }
 
+    /// @notice Mark an index as claimed using bit manipulation
+    /// @dev Efficiently sets a single bit in the bitmap without affecting other bits
+    ///      Uses bitwise OR with a shifted bit mask
     /// @param index The leaf index in the Merkle tree to mark as claimed
     function _setClaimed(uint256 index) internal {
+        // Calculate word index (each word holds 256 bits = 2^8)
         uint256 wordIndex = index >> 8;
+        // Calculate bit index within the word
         uint256 bitIndex = index & 0xff;
+        // Set the bit using bitwise OR with a shifted 1
         claimedBitMap[wordIndex] |= 1 << bitIndex;
     }
 }
@@ -324,9 +421,10 @@ contract MerkleAirdropToken {
 /// @title MerkleProof
 /// @notice Minimal Merkle proof verification library (sorted pair hashing)
 /// @dev Uses sorted pair hashing: keccak256(abi.encodePacked(min(a,b), max(a,b)))
+///      This approach ensures consistent tree construction regardless of insertion order
 library MerkleProof {
     /// @notice Verify a Merkle proof against a root hash
-    /// @param proof The array of sibling hashes forming the proof
+    /// @param proof The array of sibling hashes forming the proof path from leaf to root
     /// @param root The Merkle root hash to verify against
     /// @param leaf The leaf hash (keccak256(abi.encode(index, address)))
     /// @return bool True if the proof is valid
@@ -334,10 +432,12 @@ library MerkleProof {
         return processProof(proof, leaf) == root;
     }
 
-    /// @notice Process a Merkle proof by hashing leaf with each proof element
-    /// @param proof The array of sibling hashes forming the proof
+    /// @notice Process a Merkle proof by recursively hashing leaf with each proof element
+    /// @param proof The array of sibling hashes forming the proof path
     /// @param leaf The leaf hash to start from
     /// @return bytes32 The computed root hash from the proof
+    /// @dev Iteratively combines the current hash with each proof element
+    ///      Uses unchecked increment for gas optimization in loops
     function processProof(bytes32[] calldata proof, bytes32 leaf) internal pure returns (bytes32) {
         bytes32 computed = leaf;
         for (uint256 i = 0; i < proof.length; ) {
@@ -352,15 +452,12 @@ library MerkleProof {
     /// @notice Hash a pair of values in sorted order for Merkle tree consistency
     /// @param a First hash value
     /// @param b Second hash value
-    /// @return bytes32 keccak256 of sorted pair
+    /// @return bytes32 keccak256 of sorted pair (min, max)
+    /// @dev Ensures deterministic tree construction by always sorting the pair
+    ///      This prevents different tree structures for the same set of leaves
     function _hashPair(bytes32 a, bytes32 b) private pure returns (bytes32) {
         return a < b ? keccak256(abi.encodePacked(a, b)) : keccak256(abi.encodePacked(b, a));
     }
 }
 
-/// @title IERC20
-/// @notice Minimal ERC20 interface for token recovery
-interface IERC20 {
-    function transfer(address to, uint256 value) external returns (bool);
-    function balanceOf(address account) external view returns (uint256);
-}
+

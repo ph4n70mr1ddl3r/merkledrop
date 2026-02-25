@@ -2,13 +2,44 @@
 
 This repository ships a 64,846,015-address Ethereum whitelist (addresses that paid ≥ 0.004 ETH in gas from genesis to block 23,000,000). It includes Rust tools to build Merkle layers and generate proofs for an airdrop contract that mints a fixed 100 MAT per claim.
 
+## Quick Start
+
+### Prerequisites
+- **Rust**: Version 1.70 or later
+- **Solidity**: Compatible with 0.8.23+
+- **OpenZeppelin Contracts**: For IERC20 interface
+
+### Setup
+```bash
+# Clone the repository
+git clone https://github.com/your-repo/merkledrop.git
+cd merkledrop
+
+# Install Rust dependencies
+cargo install --path rust-merkle
+
+# Build the Merkle tree
+cargo run --release --manifest-path rust-merkle/Cargo.toml --
+```
+
 ## Security Features
 
 - **Input Validation**: Comprehensive validation for all inputs including address checksums, proof lengths, and array bounds
 - **Gas Optimization**: Efficient bitmap implementation and proof validation with length limits
 - **Reentrancy Protection**: Built-in reentrancy guard for secure claiming
-- **Batch Operations**: Support for batch claiming to reduce transaction costs
+- **Batch Operations**: Support for batch claiming to reduce transaction costs (up to 50 addresses)
+- **Emergency Pause**: Owner can pause/unpause the contract for emergency situations
+- **Custom Error Types**: Detailed error messages for better debugging and gas efficiency
 - **Owner Controls**: Secure ownership with transfer functionality and recovery mechanisms
+
+## Contract Features
+
+- **Fixed Claim Amount**: 100 MAT (18 decimals) per successful claim
+- **Individual & Batch Claiming**: Support for single claims and batch operations
+- **Emergency Controls**: Owner can pause, unpause, and end the airdrop
+- **Recovery Functions**: Owner can recover ERC20 tokens and ETH sent to the contract
+- **Reentrancy Protection**: Built-in security against reentrancy attacks
+- **Memory Efficiency**: Bitmap tracking for claimed addresses
 
 ## Contents
 - `shards/`: 256 shard files listed in `shards/manifest.txt`, sorted by prefix.
@@ -60,7 +91,7 @@ cargo run --release --manifest-path rust-merkle/Cargo.toml --bin check-sorted --
 - Supports both individual and batch claiming
 - File: `MerkleAirdropToken.sol`.
 
-### Contract Features
+### Contract Functions
 
 **Individual Claiming:**
 ```solidity
@@ -76,11 +107,23 @@ function batchClaim(
 ) external nonReentrant
 ```
 
-**Security Features:**
+**Owner Functions:**
+```solidity
+function endAirdrop() external onlyOwner        // Stop all claiming
+function pause() external onlyOwner            // Emergency pause
+function unpause() external onlyOwner          // Resume after pause
+function transferOwnership(...) external onlyOwner  // Transfer ownership
+function recoverTokens(...) external onlyOwner      // Recover ERC20 tokens
+function recoverETH(...) external onlyOwner         // Recover ETH
+```
+
+### Security Features
 - Proof length validation (max 32 proofs)
 - Input validation for all parameters
 - Reentrancy protection
-- Comprehensive error handling
+- Comprehensive error handling with custom error types
+- Emergency pause functionality for critical situations
+- Protection against double claiming via bitmap tracking
 
 ### Usage Example
 
