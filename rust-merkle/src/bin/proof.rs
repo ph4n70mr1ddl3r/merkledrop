@@ -44,12 +44,14 @@ struct Meta {
 fn main() -> Result<()> {
     let args = Args::parse();
     let meta: Meta = read_meta(&args.meta)?;
-    let layers_dir = args.layers_dir.clone().unwrap_or_else(|| {
+    let layers_dir = if let Some(dir) = &args.layers_dir {
+        rust_merkle::resolve_path(dir.to_str().unwrap(), Path::new("."))?
+    } else {
         args.meta
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .to_path_buf()
-    });
+    };
 
     // Validate that the address map exists before proceeding
     if let Some(map_name) = &meta.address_map {
@@ -134,9 +136,18 @@ fn build_proof(index: usize, meta: &Meta, layers_dir: &Path) -> Result<Vec<Strin
 
 fn resolve_address_map(args: &Args, meta: &Meta, layers_dir: &Path) -> Result<PathBuf> {
     if let Some(name) = &meta.address_map {
-        Ok(layers_dir.join(name))
+        let path = rust_merkle::resolve_path(name, layers_dir)?;
+        if !path.exists() {
+            return Err(format!("address map not found: {}", path.display()).into());
+        }
+        Ok(path)
     } else if let Some(ref path) = args.address_map {
-        Ok(path.clone())
+        let resolved_path =
+            rust_merkle::resolve_path(path.as_path().to_str().unwrap(), layers_dir)?;
+        if !resolved_path.exists() {
+            return Err(format!("address map not found: {}", resolved_path.display()).into());
+        }
+        Ok(resolved_path)
     } else {
         Err("no address map provided and none found in metadata".into())
     }

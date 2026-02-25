@@ -28,15 +28,17 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    if !args.addresses.exists() {
+    let resolved_addresses =
+        rust_merkle::resolve_path(args.addresses.to_str().unwrap(), Path::new("."))?;
+    if !resolved_addresses.exists() {
         return Err(format!(
             "addresses file does not exist: {}",
-            args.addresses.display()
+            resolved_addresses.display()
         )
         .into());
     }
 
-    let meta = std::fs::metadata(&args.addresses)?;
+    let meta = std::fs::metadata(&resolved_addresses)?;
     let len = meta.len();
     if len % ADDRESS_SIZE as u64 != 0 {
         return Err(format!(
@@ -64,7 +66,7 @@ fn main() -> Result<()> {
             .progress_chars("##-"),
     );
 
-    let mut reader = BufReader::new(File::open(&args.addresses)?);
+    let mut reader = BufReader::new(File::open(&resolved_addresses)?);
     let buf_size = args
         .chunk
         .checked_mul(ADDRESS_SIZE)

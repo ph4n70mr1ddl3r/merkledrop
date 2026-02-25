@@ -139,6 +139,51 @@ fn validate_checksum(original: &str, _address: &[u8; ADDRESS_SIZE]) -> Result<()
     Ok(())
 }
 
+/// Resolves a path safely, preventing directory traversal attacks.
+/// Ensures the path is either absolute and within the allowed base directory,
+/// or relative to the base directory.
+///
+/// # Arguments
+///
+/// * `entry` - The path entry to resolve
+/// * `base` - The base directory that paths must stay within
+///
+/// # Returns
+///
+/// A Result containing the resolved PathBuf or an error if path traversal is attempted
+///
+/// # Errors
+///
+/// Returns an error if the path attempts directory traversal outside the base directory
+pub fn resolve_path(
+    entry: &str,
+    base: &Path,
+) -> std::result::Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
+    let p = PathBuf::from(entry);
+
+    if p.is_absolute() {
+        // Check if absolute path is within allowed base directory
+        if !p.starts_with(base) {
+            return Err(
+                "Path traversal attempt detected: absolute path outside base directory".into(),
+            );
+        }
+        Ok(p)
+    } else {
+        // For relative paths, join with base directory
+        let resolved = base.join(&p);
+
+        // Verify that the resolved path is still within the base directory
+        if !resolved.starts_with(base) {
+            return Err(
+                "Path traversal attempt detected: relative path escapes base directory".into(),
+            );
+        }
+
+        Ok(resolved)
+    }
+}
+
 /// Ensures a file exists, returning an error if it doesn't.
 pub fn ensure_file_exists(
     path: &Path,

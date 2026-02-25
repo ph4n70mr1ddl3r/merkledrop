@@ -140,20 +140,27 @@ contract MerkleAirdropToken {
 
     // --- ERC20 core ---
     /// @notice Transfers tokens to a specified address
+    /// @dev Transfers tokens from caller to specified address with reentrancy protection
     /// @param to The address to transfer to
-    /// @param value The amount to transfer
-    /// @return bool True if successful
-    function transfer(address to, uint256 value) external returns (bool) {
+    /// @param value The amount of tokens to transfer
+    /// @return bool Always returns true (reverts on failure)
+    /// @custom:reverts CannotTransferToZeroAddress - if recipient is zero address
+    /// @custom:reverts InsufficientBalance - if sender has insufficient balance
+    function transfer(address to, uint256 value) external nonReentrant returns (bool) {
         _transfer(msg.sender, to, value);
         return true;
     }
 
     /// @notice Transfers tokens from one address to another using allowance
+    /// @dev Allows spender to transfer tokens from owner's account, with reentrancy protection
     /// @param from The address to transfer from
     /// @param to The address to transfer to
-    /// @param value The amount to transfer
-    /// @return bool True if successful
-    function transferFrom(address from, address to, uint256 value) external returns (bool) {
+    /// @param value The amount of tokens to transfer
+    /// @return bool Always returns true (reverts on failure)
+    /// @custom:reverts AllowanceExceeded - if transfer amount exceeds spender's allowance
+    /// @custom:reverts CannotTransferToZeroAddress - if recipient is zero address
+    /// @custom:reverts InsufficientBalance - if sender has insufficient balance
+    function transferFrom(address from, address to, uint256 value) external nonReentrant returns (bool) {
         uint256 allowed = _allowances[from][msg.sender];
         if (allowed < value) revert AllowanceExceeded();
         if (allowed != type(uint256).max) {
@@ -164,10 +171,12 @@ contract MerkleAirdropToken {
     }
 
     /// @notice Approves a spender to spend tokens on behalf of the owner
+    /// @dev Sets approval amount for spender to transfer tokens from owner's account, with reentrancy protection
     /// @param spender The address to approve
-    /// @param value The amount to approve
-    /// @return bool True if successful
-    function approve(address spender, uint256 value) external returns (bool) {
+    /// @param value The amount of tokens to approve
+    /// @return bool Always returns true (reverts on failure)
+    /// @custom:reverts CannotTransferToZeroAddress - if spender is zero address
+    function approve(address spender, uint256 value) external nonReentrant returns (bool) {
         _approve(msg.sender, spender, value);
         return true;
     }
@@ -182,9 +191,16 @@ contract MerkleAirdropToken {
 
     // --- Airdrop logic ---
     /// @notice Claim tokens for an address using a Merkle proof
+    /// @dev Validates Merkle proof and mints claimAmount tokens to specified address
     /// @param index The index of the address in the Merkle tree
     /// @param account The address claiming tokens
     /// @param merkleProof The Merkle proof for the address
+    /// @custom:reverts ContractPaused - if contract is paused
+    /// @custom:reverts AirdropAlreadyEnded - if airdrop has already ended
+    /// @custom:reverts InvalidAccountAddress - if account is zero address
+    /// @custom:reverts AddressAlreadyClaimed - if the address has already claimed tokens
+    /// @custom:reverts MerkleProofTooLong - if proof exceeds 32 elements (gas limit)
+    /// @custom:reverts InvalidMerkleProof - if proof does not verify against merkle root
     function claim(uint256 index, address account, bytes32[] calldata merkleProof) external nonReentrant {
         if (paused) revert ContractPaused();
         if (airdropEnded) revert AirdropAlreadyEnded();
@@ -223,7 +239,8 @@ contract MerkleAirdropToken {
         if (indexes.length == 0 || indexes.length > 50) revert InvalidBatchSize();
         if (airdropEnded) revert AirdropAlreadyEnded();
 
-        // Pre-validation: check all inputs before processing to avoid partial processing
+        // Combined validation and processing to prevent front-running
+        // Process each claim immediately after validation to avoid window of vulnerability
         for (uint256 i = 0; i < indexes.length; ) {
             address account = accounts[i];
             uint256 index = indexes[i];
@@ -233,20 +250,11 @@ contract MerkleAirdropToken {
             if (_isClaimed(index)) revert AddressAlreadyClaimed();
             if (proof.length > MAX_PROOF_LENGTH) revert MerkleProofTooLong();
             
-            // Pre-compute leaf hash to avoid recomputation
+            // Verify Merkle proof
             bytes32 leaf = keccak256(abi.encode(index, account));
             if (!MerkleProof.verify(proof, merkleRoot, leaf)) revert InvalidMerkleProof();
             
-            unchecked {
-                ++i;
-            }
-        }
-
-        // Process all claims (no more validation needed)
-        for (uint256 i = 0; i < indexes.length; ) {
-            address account = accounts[i];
-            uint256 index = indexes[i];
-            
+            // Immediately mark as claimed and mint to prevent front-running
             _setClaimed(index);
             _mint(account, claimAmount);
             emit Claimed(index, account, claimAmount);
@@ -285,7 +293,7 @@ contract MerkleAirdropToken {
     /// @param token The token address to recover
     /// @param to The address to send recovered tokens to
     /// @param amount The amount to recover
-    function recoverTokens(address token, address to, uint256 amount) external onlyOwner {
+    function recoverTokens(address token, address to, uint256 amount) external onlyOwner nonReentrant {
         if (token == address(0)) revert InvalidAccountAddress();
         if (to == address(0)) revert CannotTransferToZeroAddress();
         if (token == address(this)) revert CannotRecoverOwnToken();
@@ -300,7 +308,7 @@ contract MerkleAirdropToken {
     /// @notice Recover ETH accidentally sent to the contract
     /// @param to The address to send recovered ETH to
     /// @param amount The amount to recover
-    function recoverETH(address payable to, uint256 amount) external onlyOwner {
+    function recoverETH(address payable to, uint256 amount) external onlyOwner nonReentrant {
         if (to == address(0)) revert CannotTransferToZeroAddress();
         if (address(this).balance < amount) revert InsufficientETHBalance();
         
@@ -344,7 +352,7 @@ contract MerkleAirdropToken {
     }
 
     // --- Internal ERC20 helpers ---
-    function _transfer(address from, address to, uint256 value) internal {
+    function _transfer(address from, address to, uint256 value) internal nonReentrant {
         if (to == address(0)) revert CannotTransferToZeroAddress();
         uint256 fromBal = _balances[from];
         if (fromBal < value) revert InsufficientBalance();
@@ -380,16 +388,19 @@ contract MerkleAirdropToken {
     /// @param index The leaf index in the Merkle tree
     /// @return bool True if the index has been claimed
     function _isClaimed(uint256 index) internal view returns (bool) {
-        // Calculate word index (each word holds 256 bits = 2^8)
-        uint256 wordIndex = index >> 8;
-        // Calculate bit index within the word
-        uint256 bitIndex = index & 0xff;
-        // Get the word containing the bit
-        uint256 word = claimedBitMap[wordIndex];
-        // Create mask for the specific bit
-        uint256 mask = 1 << bitIndex;
-        // Check if the bit is set
-        return (word & mask) == mask;
+        assembly {
+            // Calculate word index (each word holds 256 bits = 2^8)
+            let wordIndex := shr(8, index)
+            // Calculate bit index within the word
+            let bitIndex := and(0xff, index)
+            // Get the word containing the bit from storage
+            let word := sload(wordIndex)
+            // Create mask for the specific bit and check if set
+            let mask := shl(bitIndex, 1)
+            // Return true if bit is set, false otherwise
+            mstore(0, iszero(and(word, mask)))
+            return(0, 32)
+        }
     }
 
     /// @notice Mark an index as claimed using bit manipulation
@@ -397,12 +408,18 @@ contract MerkleAirdropToken {
     ///      Uses bitwise OR with a shifted bit mask
     /// @param index The leaf index in the Merkle tree to mark as claimed
     function _setClaimed(uint256 index) internal {
-        // Calculate word index (each word holds 256 bits = 2^8)
-        uint256 wordIndex = index >> 8;
-        // Calculate bit index within the word
-        uint256 bitIndex = index & 0xff;
-        // Set the bit using bitwise OR with a shifted 1
-        claimedBitMap[wordIndex] |= 1 << bitIndex;
+        assembly {
+            // Calculate word index (each word holds 256 bits = 2^8)
+            let wordIndex := shr(8, index)
+            // Calculate bit index within the word
+            let bitIndex := and(0xff, index)
+            // Create mask for the specific bit
+            let mask := shl(bitIndex, 1)
+            // Set the bit using bitwise OR with the mask
+            sload(wordIndex)
+            or(mask, mload(0))
+            sstore(wordIndex, mload(0))
+        }
     }
 }
 

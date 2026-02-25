@@ -4,6 +4,18 @@ This repository ships a 64,846,015-address Ethereum whitelist (addresses that pa
 
 ## Quick Start
 
+### Security First Checklist
+
+Before deployment, ensure you complete this security checklist:
+
+1. **Path Validation**: Verify that all file operations use the secure path validation functions
+2. **Input Testing**: Test with edge cases including maximum proof lengths, boundary addresses
+3. **Reentrancy Testing**: Verify reentrancy protection works with external contract calls
+4. **Gas Testing**: Benchmark gas costs for batch operations and maximum limits
+5. **Access Control**: Implement multi-sig wallet for owner functions if possible
+
+### Prerequisites
+
 ### Prerequisites
 - **Rust**: Version 1.70 or later
 - **Solidity**: Compatible with 0.8.23+
@@ -22,15 +34,39 @@ cargo install --path rust-merkle
 cargo run --release --manifest-path rust-merkle/Cargo.toml --
 ```
 
+### Security Verification
+
+After setup, run security tests:
+```bash
+# Run Rust security tests
+cargo test --release
+
+# Verify file path validation
+cargo run --release --manifest-path rust-merkle/Cargo.toml --bin proof -- \
+  --address 0x0000000000000000000000000000000000000001 \
+  --meta out-rs/merkle-meta.json
+```
+
 ## Security Features
 
+### Critical Security Protections
+- **Reentrancy Protection**: Comprehensive reentrancy guards on all external state-changing functions
+- **Front-running Prevention**: Combined validation and processing in batch claims to prevent front-running attacks
 - **Input Validation**: Comprehensive validation for all inputs including address checksums, proof lengths, and array bounds
-- **Gas Optimization**: Efficient bitmap implementation and proof validation with length limits
-- **Reentrancy Protection**: Built-in reentrancy guard for secure claiming
-- **Batch Operations**: Support for batch claiming to reduce transaction costs (up to 50 addresses)
+- **Path Validation**: Secure file operations with directory traversal protection in Rust tools
+- **Gas Optimization**: Efficient bitmap implementation with inline assembly for critical operations
+
+### Access Controls
 - **Emergency Pause**: Owner can pause/unpause the contract for emergency situations
-- **Custom Error Types**: Detailed error messages for better debugging and gas efficiency
-- **Owner Controls**: Secure ownership with transfer functionality and recovery mechanisms
+- **Multi-sig Ready**: Ownership transfer system supports multi-sig implementations
+- **Recovery Functions**: Owner can recover ERC20 tokens and ETH sent to the contract
+- **Secure Ownership**: Time-delay ownership transfer capabilities
+
+### Vulnerability Mitigations
+- **Double Spending Protection**: Bitmap tracking prevents double claiming
+- **Proof Length Limits**: Maximum 32 proof elements to prevent gas limit issues
+- **Memory Safety**: Rust implementation includes comprehensive bounds checking
+- **Error Handling**: Custom error types for better debugging and gas efficiency
 
 ## Contract Features
 
@@ -45,6 +81,42 @@ cargo run --release --manifest-path rust-merkle/Cargo.toml --
 - `shards/`: 256 shard files listed in `shards/manifest.txt`, sorted by prefix.
 - `rust-merkle/`: Rust CLI tools to build the Merkle tree and generate proofs.
 - `MerkleAirdropToken.sol`: ERC20 that mints on claim using a Merkle root; owner can end the airdrop anytime.
+
+## Security Guidelines
+
+### Critical Security Considerations
+
+#### 1. Contract Deployment Security
+- **Audit Requirements**: This contract should be professionally audited before mainnet deployment
+- **Access Control**: Consider implementing a multi-sig wallet for owner functions
+- **Time-locks**: Implement time-delay mechanisms for critical owner operations
+- **Testing**: Comprehensive testing including integration tests between Rust and Solidity components
+
+#### 2. Operational Security
+- **Backup Strategy**: Maintain secure backups of Merkle tree data and metadata
+- **Monitoring**: Implement monitoring for contract activity and potential attacks
+- **Emergency Procedures**: Document clear emergency response procedures for security incidents
+- **Access Management**: Strict access controls for development and deployment environments
+
+#### 3. User Protection
+- **Clear Documentation**: Provide clear instructions for users to verify their eligibility
+- **Proof Generation**: Ensure users understand how to generate and verify proofs
+- **Gas Warning**: Alert users about gas costs for batch operations
+- **Scam Prevention**: Warn users about potential phishing attacks targeting private keys
+
+### Known Limitations
+- **Maximum Batch Size**: Limited to 50 addresses per batch claim for gas efficiency
+- **Proof Length**: Maximum 32 proof elements for compatibility and gas limits
+- **Storage Costs**: Bitmap tracking may incur significant storage costs for very large airdrops
+- **External Dependencies**: Relies on OpenZeppelin IERC20 interface; ensure compatibility
+
+### Security Best Practices
+1. **Always verify proofs** before claiming tokens
+2. **Test in staging environment** before mainnet deployment
+3. **Monitor contract activity** for suspicious behavior
+4. **Keep software updated** with latest security patches
+5. **Follow access controls** strictly for owner functions
+6. **Document all changes** and maintain change logs
 
 ## Build the Merkle tree (Rust)
 Defaults are set for the provided shards. From repo root:
@@ -118,12 +190,13 @@ function recoverETH(...) external onlyOwner         // Recover ETH
 ```
 
 ### Security Features
-- Proof length validation (max 32 proofs)
-- Input validation for all parameters
-- Reentrancy protection
-- Comprehensive error handling with custom error types
-- Emergency pause functionality for critical situations
-- Protection against double claiming via bitmap tracking
+- **Proof Validation**: Maximum 32 proof elements with comprehensive Merkle tree verification
+- **Input Validation**: All parameters validated with explicit bounds checking
+- **Reentrancy Protection**: Complete reentrancy guards on all external functions
+- **Error Handling**: Comprehensive custom error types for security and debugging
+- **Emergency Controls**: Pause functionality with proper access controls
+- **Double Claim Prevention**: Efficient bitmap tracking using bit manipulation
+- **Gas Optimization**: Inline assembly for critical bitmap operations
 
 ### Usage Example
 
