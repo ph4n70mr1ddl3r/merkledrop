@@ -589,6 +589,143 @@ contract MaliciousContract {
     }
 }
 
+// Fuzz testing contract
+contract FuzzTest is Test {
+    MerkleAirdropToken public airdropContract;
+    
+    constructor(address _airdropContract) {
+        airdropContract = MerkleAirdropToken(_airdropContract);
+    }
+    
+    // Fuzz test for claim index validation
+    function testFuzzClaimIndex(uint256 index) public {
+        // Only test valid indexes
+        vm.assume(index < 10000 && index < type(uint256).max / 2);
+        
+        bytes32[] memory proof = new bytes32[](0);
+        
+        vm.expectRevert();
+        vm.prank(user1);
+        airdropContract.claim(index, user1, proof);
+    }
+    
+    // Fuzz test for proof length validation
+    function testFuzzProofLength(uint256 proofLength) public {
+        // Only test reasonable proof lengths
+        vm.assume(proofLength < 100 && proofLength < type(uint256).max / 32);
+        
+        bytes32[] memory proof = new bytes32[](proofLength);
+        for (uint i = 0; i < proofLength; i++) {
+            proof[i] = bytes32(uint(keccak256(abi.encode(i, "proof"))));
+        }
+        
+        vm.prank(user1);
+        airdropContract.claim(TEST_INDEX_1, user1, proof);
+    }
+    
+    // Fuzz test for address validation
+    function testFuzzAddress(address account) public {
+        vm.assume(account != address(0));
+        
+        bytes32[] memory proof = new bytes32[](2);
+        proof[0] = 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef;
+        proof[1] = 0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890;
+        
+        vm.prank(user1);
+        airdropContract.claim(TEST_INDEX_1, account, proof);
+    }
+    
+    // Fuzz test for batch claiming
+    function testFuzzBatchClaim(uint256 batchSize) public {
+        // Only test batch sizes within limits
+        vm.assume(batchSize > 0 && batchSize <= 50 && batchSize < type(uint256).max / 50);
+        
+        uint256[] memory indexes = new uint256[](batchSize);
+        address[] memory accounts = new address[](batchSize);
+        bytes32[][] memory proofs = new bytes32[][](batchSize);
+        
+        for (uint i = 0; i < batchSize; i++) {
+            indexes[i] = TEST_INDEX_1 + i;
+            accounts[i] = address(uint160(i + 100));
+            proofs[i] = new bytes32[](2);
+            proofs[i][0] = bytes32(uint(keccak256(abi.encode(i, "proof1"))));
+            proofs[i][1] = bytes32(uint(keccak256(abi.encode(i, "proof2"))));
+        }
+        
+        vm.prank(user1);
+        airdropContract.claimBatch(indexes, accounts, proofs);
+    }
+}
+
+// Gas benchmarking test contract
+contract GasBenchmark is Test {
+    MerkleAirdropToken public airdropContract;
+    
+    constructor(address _airdropContract) {
+        airdropContract = MerkleAirdropToken(_airdropContract);
+    }
+    
+    function testGasClaimSingle() public {
+        bytes32[] memory proof = new bytes32[](2);
+        proof[0] = 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef;
+        proof[1] = 0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890;
+        
+        uint256 gasBefore = gasleft();
+        
+        vm.prank(user1);
+        airdropContract.claim(TEST_INDEX_1, user1, proof);
+        
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log("Single claim gas used:", gasUsed);
+    }
+    
+    function testGasClaimBatch() public {
+        bytes32[] memory proof1 = new bytes32[](2);
+        proof1[0] = 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef;
+        proof1[1] = 0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890;
+        
+        bytes32[] memory proof2 = new bytes32[](2);
+        proof2[0] = 0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890;
+        proof2[1] = 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef;
+        
+        uint256 gasBefore = gasleft();
+        
+        vm.prank(user1);
+        airdropContract.claimBatch([TEST_INDEX_1, TEST_INDEX_2], [user1, user2], [proof1, proof2]);
+        
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log("Batch claim (2) gas used:", gasUsed);
+    }
+    
+    function testGasMerkleProofVerification() public {
+        bytes32[] memory proof = new bytes32[](5);
+        for (uint i = 0; i < proof.length; i++) {
+            proof[i] = bytes32(uint(keccak256(abi.encode(i, "proof"))));
+        }
+        
+        uint256 gasBefore = gasleft();
+        
+        vm.prank(user1);
+        airdropContract.claim(TEST_INDEX_1, user1, proof);
+        
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log("Merkle proof verification gas used:", gasUsed);
+    }
+    
+    function testGasBitmapOperations() public {
+        // Test bitmap operations for large index values
+        uint256 largeIndex = 255;
+        
+        uint256 gasBefore = gasleft();
+        
+        vm.prank(user1);
+        airdropContract.claim(largeIndex, user1, new bytes32[](0));
+        
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log("Bitmap operations gas used:", gasUsed);
+    }
+}
+
 // Mock ERC20 token for testing
 contract MockToken {
     mapping(address => uint256) public balanceOf;

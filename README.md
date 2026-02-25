@@ -34,6 +34,74 @@ cargo install --path rust-merkle
 cargo run --release --manifest-path rust-merkle/Cargo.toml --
 ```
 
+## Gas Estimates & Deployment Guidance
+
+### Gas Cost Estimates
+
+| Operation | Gas Cost (Estimate) | Notes |
+|-----------|-------------------|--------|
+| Single Claim | 85,000 - 120,000 | Varies with proof length |
+| Batch Claim (10 addresses) | 180,000 - 250,000 | ~20% savings per additional address |
+| Batch Claim (50 addresses) | 450,000 - 600,000 | Maximum batch size |
+| Merkle Proof Validation | 2,000 - 5,000 per proof | Depends on proof depth |
+| Bitmap Operations | 1,500 - 2,500 | Per claim operation |
+| Ownership Transfer | 45,000 - 55,000 | Includes validation |
+| ETH Recovery | 35,000 - 45,000 | Safe transfer pattern |
+
+### Deployment Recommendations
+
+#### 1. Contract Deployment
+```solidity
+// Recommended deployment parameters
+uint256 public immutable claimAmount = 100 * 10**18;    // 100 tokens
+uint256 public immutable maxSupply = 1000000 * 10**18;   // 1M tokens maximum
+uint256 public constant MAX_PROOF_LENGTH = 32;          // Maximum proof depth
+uint256 public constant MAX_BATCH_SIZE = 50;           // Maximum batch size
+```
+
+#### 2. Security Deployment Checklist
+- [ ] Deploy to testnet first and audit all interactions
+- [ ] Set up monitoring for contract activities
+- [ ] Implement time-lock for critical operations
+- [ ] Deploy with multi-sig ownership if possible
+- [ ] Set up emergency stop procedures
+- [ ] Verify cross-language compatibility with test script
+
+#### 3. Gas Optimization Tips
+- **Batch Operations**: Use batch claiming for multiple addresses to save ~20% gas per additional address
+- **Proof Length**: Keep proofs as short as possible (optimal: 8-16 hashes)
+- **Bitmap Efficiency**: The current bitmap implementation is already optimized for gas
+- **Storage Layout**: Contract uses optimized storage patterns
+
+#### 4. Monitoring Guidelines
+```bash
+# Run regular security checks
+./cross_language_test.sh
+
+# Monitor contract activity
+forge test --gas-report
+
+# Check for potential issues
+cargo test --release -- --exact
+```
+
+#### 5. Troubleshooting Common Issues
+
+**Claim Failures**:
+- Verify Merkle root matches between Rust and Solidity
+- Check that proofs are generated correctly using Rust tools
+- Ensure addresses are properly formatted with EIP-55 checksum
+
+**Gas Issues**:
+- Monitor gas usage patterns in production
+- Consider reducing batch size if gas limits are hit
+- Use gas profiling for optimization
+
+**Integration Problems**:
+- Run cross-language tests to ensure compatibility
+- Verify hash function consistency between implementations
+- Check file path handling in Rust tools
+
 ### Security Verification
 
 After setup, run security tests:

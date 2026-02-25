@@ -312,10 +312,7 @@ fn hash_file_into(
 }
 
 fn resolve_path(entry: &str, base: &Path) -> PathBuf {
-    rust_merkle::resolve_path(entry, base).unwrap_or_else(|e| {
-        eprintln!("Path resolution failed: {}", e);
-        std::process::exit(1);
-    })
+    rust_merkle::resolve_path(entry, base).expect("Path resolution should not fail in this context")
 }
 
 /// Computes the Keccak256 hash of a file's contents.

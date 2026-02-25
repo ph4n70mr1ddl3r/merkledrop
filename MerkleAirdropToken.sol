@@ -363,19 +363,7 @@ contract MerkleAirdropToken {
         emit ETHRecovered(to, amount);
     }
 
-    /// @notice Recover ETH accidentally sent to the contract
-    /// @param to The address to send recovered ETH to
-    /// @param amount The amount to recover
-    function recoverETH(address payable to, uint256 amount) external onlyOwner nonReentrant {
-        if (to == address(0)) revert CannotTransferToZeroAddress(to);
-        uint256 available = address(this).balance;
-        if (available < amount) revert InsufficientETHBalance(available, amount);
-        
-        (bool success, ) = to.call{value: amount, gas: 2300}("");
-        if (!success) revert ETHTransferFailed();
-        
-        emit ETHRecovered(to, amount);
-    }
+    
 
     // --- Ownership ---
     /// @notice Initiate ownership transfer to a new owner
@@ -473,16 +461,12 @@ contract MerkleAirdropToken {
     /// @custom:dev Uses inline assembly for gas efficiency (storage access optimization)
     function _isClaimed(uint256 index) internal view returns (bool) {
         assembly {
-            // Calculate word index (each word holds 256 bits = 2^8)
             let wordIndex := shr(8, index)
-            // Calculate bit index within the word
             let bitIndex := and(0xff, index)
-            // Get the word containing the bit from storage
-            let word := sload(wordIndex)
-            // Create mask for the specific bit and check if set
             let mask := shl(bitIndex, 1)
-            // Return true if bit is set, false otherwise
-            mstore(0, iszero(and(word, mask)))
+            let currentWord := sload(wordIndex)
+            let result := and(currentWord, mask)
+            mstore(0, iszero(iszero(result)))
             return(0, 32)
         }
     }
