@@ -51,12 +51,31 @@ fn main() -> Result<()> {
             .to_path_buf()
     });
 
+    // Validate that the address map exists before proceeding
+    if let Some(map_name) = &meta.address_map {
+        let map_path = layers_dir.join(map_name);
+        if !map_path.exists() {
+            return Err(format!("address map not found: {}", map_path.display()).into());
+        }
+    }
+
     let address = args.address.to_lowercase();
     let addr_bytes = parse_address(&address)?;
 
     let map_path = resolve_address_map(&args, &meta, &layers_dir)?;
     let index = find_index_from_map(&addr_bytes, &map_path)?;
+
+    // Validate that index is within leaf count
+    if index >= meta.leaf_count {
+        return Err(format!("index {} exceeds leaf count {}", index, meta.leaf_count).into());
+    }
+
     let proof = build_proof(index, &meta, &layers_dir)?;
+
+    // Validate proof length for Solidity compatibility
+    if proof.len() > 32 {
+        return Err(format!("proof length {} exceeds maximum allowed 32", proof.len()).into());
+    }
 
     println!("address: {address}");
     println!("index: {}", index);
@@ -80,6 +99,10 @@ fn read_meta(path: &Path) -> Result<Meta> {
 
 /// Builds a Merkle proof for the given leaf index by traversing the tree layers.
 fn build_proof(index: usize, meta: &Meta, layers_dir: &Path) -> Result<Vec<String>> {
+    if meta.layer_files.len() < 2 {
+        return Err("insufficient layers for proof generation".into());
+    }
+
     let mut idx = index;
     let mut width = meta.leaf_count;
     let mut proof = Vec::with_capacity(meta.layer_files.len().saturating_sub(1));
@@ -88,11 +111,23 @@ fn build_proof(index: usize, meta: &Meta, layers_dir: &Path) -> Result<Vec<Strin
         if i == meta.layer_files.len() - 1 {
             break;
         }
+
+        // Validate layer file exists
+        let layer_path = layers_dir.join(layer_file);
+        if !layer_path.exists() {
+            return Err(format!("layer file not found: {}", layer_path.display()).into());
+        }
+
         let sibling = sibling_index(idx, width);
-        let sibling_hash = read_hash(&layers_dir.join(layer_file), sibling, width)?;
+        let sibling_hash = read_hash(&layer_path, sibling, width)?;
         proof.push(format!("0x{}", hex::encode(sibling_hash)));
         idx /= 2;
         width = width.div_ceil(2);
+
+        // Validate we haven't exceeded reasonable proof depth
+        if proof.len() > 32 {
+            return Err("proof depth exceeded maximum allowed 32".into());
+        }
     }
     Ok(proof)
 }

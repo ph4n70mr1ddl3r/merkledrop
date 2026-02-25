@@ -27,6 +27,10 @@ contract MerkleAirdropToken {
     uint256 public immutable claimAmount;
     uint256 public immutable maxSupply;
     bool public airdropEnded;
+    
+    // --- Constants for gas optimization and safety ---
+    uint256 private constant MAX_PROOF_LENGTH = 32;
+    uint256 private constant MAX_ADDRESSES_PER_WORD = 256;
 
     // --- Claim bitmap (index => claimed) ---
     // Each uint256 word stores 256 claim status bits (indexes 0-255 per word)
@@ -153,6 +157,7 @@ contract MerkleAirdropToken {
         require(!airdropEnded, "airdrop has ended");
         require(account != address(0), "invalid account address");
         require(!_isClaimed(index), "address already claimed");
+        require(merkleProof.length <= MAX_PROOF_LENGTH, "proof too long");
 
         bytes32 leaf = keccak256(abi.encode(index, account));
         require(MerkleProof.verify(merkleProof, merkleRoot, leaf), "invalid merkle proof");
@@ -167,6 +172,43 @@ contract MerkleAirdropToken {
     /// @return bool True if the index has been claimed
     function isClaimed(uint256 index) external view returns (bool) {
         return _isClaimed(index);
+    }
+
+    /// @notice Batch claim tokens for multiple addresses using Merkle proofs
+    /// @param indexes The array of indexes for the addresses
+    /// @param accounts The array of addresses claiming tokens
+    /// @param proofs The array of Merkle proofs for the addresses
+    /// @return bool True if successful
+    function batchClaim(
+        uint256[] calldata indexes,
+        address[] calldata accounts,
+        bytes32[][] calldata proofs
+    ) external nonReentrant {
+        require(indexes.length == accounts.length, "array length mismatch");
+        require(indexes.length == proofs.length, "proof array length mismatch");
+        require(indexes.length > 0 && indexes.length <= 50, "invalid batch size");
+        require(!airdropEnded, "airdrop has ended");
+
+        for (uint256 i = 0; i < indexes.length; ) {
+            address account = accounts[i];
+            uint256 index = indexes[i];
+            bytes32[] calldata proof = proofs[i];
+            
+            require(account != address(0), "invalid account address");
+            require(!_isClaimed(index), "address already claimed");
+            require(proof.length <= MAX_PROOF_LENGTH, "proof too long");
+
+            bytes32 leaf = keccak256(abi.encode(index, account));
+            require(MerkleProof.verify(proof, merkleRoot, leaf), "invalid merkle proof");
+
+            _setClaimed(index);
+            _mint(account, claimAmount);
+            emit Claimed(index, account, claimAmount);
+            
+            unchecked {
+                ++i;
+            }
+        }
     }
 
     /// @notice End the airdrop, preventing further claims

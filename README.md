@@ -2,6 +2,14 @@
 
 This repository ships a 64,846,015-address Ethereum whitelist (addresses that paid ≥ 0.004 ETH in gas from genesis to block 23,000,000). It includes Rust tools to build Merkle layers and generate proofs for an airdrop contract that mints a fixed 100 MAT per claim.
 
+## Security Features
+
+- **Input Validation**: Comprehensive validation for all inputs including address checksums, proof lengths, and array bounds
+- **Gas Optimization**: Efficient bitmap implementation and proof validation with length limits
+- **Reentrancy Protection**: Built-in reentrancy guard for secure claiming
+- **Batch Operations**: Support for batch claiming to reduce transaction costs
+- **Owner Controls**: Secure ownership with transfer functionality and recovery mechanisms
+
 ## Contents
 - `shards/`: 256 shard files listed in `shards/manifest.txt`, sorted by prefix.
 - `rust-merkle/`: Rust CLI tools to build the Merkle tree and generate proofs.
@@ -49,4 +57,53 @@ cargo run --release --manifest-path rust-merkle/Cargo.toml --bin check-sorted --
 - Fixed claim: 100 MAT (18 decimals), minted on successful proof.
 - Leaf encoding: `keccak256(abi.encode(index, address))`.
 - Owner can end the airdrop at any time; bitmap prevents double claims.
+- Supports both individual and batch claiming
 - File: `MerkleAirdropToken.sol`.
+
+### Contract Features
+
+**Individual Claiming:**
+```solidity
+function claim(uint256 index, address account, bytes32[] calldata merkleProof) external nonReentrant
+```
+
+**Batch Claiming:**
+```solidity
+function batchClaim(
+    uint256[] calldata indexes,
+    address[] calldata accounts,
+    bytes32[][] calldata proofs
+) external nonReentrant
+```
+
+**Security Features:**
+- Proof length validation (max 32 proofs)
+- Input validation for all parameters
+- Reentrancy protection
+- Comprehensive error handling
+
+### Usage Example
+
+1. **Generate proof for an address:**
+```bash
+cargo run --release --manifest-path rust-merkle/Cargo.toml --bin proof -- \
+  --address 0xYourAddressHere \
+  --address-map out-rs/addresses.bin \
+  --meta out-rs/merkle-meta.json \
+  --layers-dir out-rs
+```
+
+2. **Claim tokens in Solidity:**
+```solidity
+// Individual claim
+airdropContract.claim(index, msg.sender, proof);
+
+// Batch claim (up to 50 addresses at once)
+uint256[] memory indexes = new uint256[](2);
+address[] memory accounts = new address[](2);
+bytes32[][] memory proofs = new bytes32[][](2);
+
+// ... populate arrays ...
+
+airdropContract.batchClaim(indexes, accounts, proofs);
+```
