@@ -117,7 +117,12 @@ fn validate_checksum(original: &str, _address: &[u8; ADDRESS_SIZE]) -> Result<()
         if char_idx >= ADDRESS_SIZE * 2 {
             break;
         }
-        let hash_nibble = u8::from_str_radix(&hash_hex[char_idx..char_idx + 1], 16).unwrap_or(0);
+        let hash_nibble =
+            u8::from_str_radix(&hash_hex[char_idx..char_idx + 1], 16).map_err(|_| {
+                AddressError::InvalidChecksum {
+                    address: original.to_string(),
+                }
+            })?;
 
         if hash_nibble >= 8 {
             if c.is_ascii_lowercase() {

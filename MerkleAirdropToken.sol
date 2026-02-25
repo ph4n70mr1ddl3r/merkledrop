@@ -157,7 +157,7 @@ contract MerkleAirdropToken {
         require(!airdropEnded, "airdrop has ended");
         require(account != address(0), "invalid account address");
         require(!_isClaimed(index), "address already claimed");
-        require(merkleProof.length <= MAX_PROOF_LENGTH, "proof too long");
+        require(merkleProof.length <= MAX_PROOF_LENGTH, "merkle proof exceeds maximum allowed length");
 
         bytes32 leaf = keccak256(abi.encode(index, account));
         require(MerkleProof.verify(merkleProof, merkleRoot, leaf), "invalid merkle proof");
@@ -186,7 +186,7 @@ contract MerkleAirdropToken {
     ) external nonReentrant {
         require(indexes.length == accounts.length, "array length mismatch");
         require(indexes.length == proofs.length, "proof array length mismatch");
-        require(indexes.length > 0 && indexes.length <= 50, "invalid batch size");
+        require(indexes.length > 0 && indexes.length <= 50, "batch size must be between 1 and 50");
         require(!airdropEnded, "airdrop has ended");
 
         for (uint256 i = 0; i < indexes.length; ) {
@@ -239,7 +239,7 @@ contract MerkleAirdropToken {
     function recoverETH(address payable to, uint256 amount) external onlyOwner {
         require(to != address(0), "cannot recover to zero address");
         require(address(this).balance >= amount, "insufficient ETH balance");
-        (bool success, ) = to.call{value: amount}("");
+        (bool success, ) = to.call{value: amount, gas: 2300}("");
         require(success, "ETH transfer failed");
         emit ETHRecovered(to, amount);
     }
@@ -251,6 +251,7 @@ contract MerkleAirdropToken {
     function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "cannot transfer to zero address");
         require(newOwner != owner, "already owner");
+        require(pendingOwner == address(0), "ownership transfer already pending");
         pendingOwner = newOwner;
         emit OwnershipTransferInitiated(owner, newOwner);
     }
